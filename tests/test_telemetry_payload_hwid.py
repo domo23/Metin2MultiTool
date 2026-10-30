@@ -1,80 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Pure tests for telemetry.payload + telemetry.hwid (no network/threads).
-
-Only the PURE layers are exercised: build_submit/clamp_payload (schema keys,
-length caps, numeric coercion, deterministic ts from injected now) and the
-RANDOM install-id module (new_install_id is a unique uuid4 hex; ensure_install_id
-generates+persists once via an injected getter/setter; the get_hwid shim is a
-process-stable RANDOM id -- NOT a machine hash). Stdlib unittest.
-"""
+"""Pure tests for the retired, offline leaderboard payload helper."""
 
 import unittest
 from datetime import datetime, timezone
 
-from telemetry import payload, hwid
-
-
-class TestNewInstallId(unittest.TestCase):
-    def test_uuid4_hex_shape(self):
-        i = hwid.new_install_id()
-        self.assertEqual(len(i), 32)
-        int(i, 16)                       # uuid4 hex -> valid hex (raises if not)
-        self.assertTrue(all(c in '0123456789abcdef' for c in i))
-
-    def test_unique_across_calls(self):
-        ids = {hwid.new_install_id() for _ in range(200)}
-        self.assertEqual(len(ids), 200)  # random -> (practically) all distinct
-
-    def test_no_hardware_derivation_api(self):
-        # The retired hardware-hash API must be GONE (no fingerprint remains).
-        for gone in ('compute_hwid', '_read_machine_guid', '_read_volume_serial'):
-            self.assertFalse(hasattr(hwid, gone),
-                             '{} must be retired'.format(gone))
-
-
-class TestEnsureInstallId(unittest.TestCase):
-    def test_generates_and_persists_once(self):
-        store = {'id': ''}
-        got = hwid.ensure_install_id(
-            lambda: store['id'], lambda v: store.__setitem__('id', v))
-        self.assertTrue(got)
-        self.assertEqual(store['id'], got)           # persisted via the setter
-        # Second call returns the STORED id (no regeneration).
-        again = hwid.ensure_install_id(lambda: store['id'], lambda v: None)
-        self.assertEqual(again, got)
-
-    def test_blank_or_invalid_triggers_generation(self):
-        for start in ('', '   ', None):
-            store = {'id': start}
-            got = hwid.ensure_install_id(
-                lambda: store['id'], lambda v: store.__setitem__('id', v))
-            self.assertTrue(got and len(got) == 32)
-
-    def test_never_raises_on_failing_callbacks(self):
-        def boom():
-            raise RuntimeError('getter down')
-
-        def boom_set(_v):
-            raise RuntimeError('setter down')
-
-        # Must still return a usable in-memory id so a submit can go out.
-        got = hwid.ensure_install_id(boom, boom_set)
-        self.assertEqual(len(got), 32)
-
-    def test_caps_overlong_stored_id(self):
-        store = {'id': 'a' * 500}
-        got = hwid.ensure_install_id(lambda: store['id'], lambda v: None)
-        self.assertLessEqual(len(got), hwid.INSTALL_ID_MAXLEN)
-
-
-class TestGetHwidShim(unittest.TestCase):
-    def test_process_stable_random_id(self):
-        # Compat shim: bounded, process-stable. NOT a machine hash.
-        a = hwid.get_hwid()
-        b = hwid.get_hwid()
-        self.assertEqual(a, b)
-        self.assertTrue(0 < len(a) <= hwid.INSTALL_ID_MAXLEN)
-        int(a, 16)                       # opaque hex
+from telemetry import payload
 
 
 class TestBuildSubmit(unittest.TestCase):

@@ -127,18 +127,13 @@ class App(
         ctk.set_appearance_mode('dark')
         ctk.set_widget_scaling(1.0)  # volle Groesse -- Schrift nicht verkleinern
         # (war 0.85 "~15% kompakter"; Nutzer-Feedback: Schrift/Infos zu klein.
-        # Die FIXEN Fenstergroessen unten + die Dialog-Geometrien sind passend
-        # mitgewachsen, damit der No-Scroll-Aufbau erhalten bleibt.)
+        # Die Dialog-Geometrien sind passend mitgewachsen.
         self.title(t('ui.window_title'))
-        # FIXE Groesse -> garantiert KEIN Scrollen (ausser der Roadmap-Info-
-        # Liste, die bewusst scrollen darf). Hoehe an die HOECHSTE Steuer-Sicht
-        # (Settings: 3 Karten + Overlay-Deckkraft + Reset-Zeile) gekoppelt +
-        # kleiner Sicherheitsrand. Die Sichten wurden dichter gesetzt; Fishing/
-        # Puzzle verteilen ihre Resthoehe ueber einen flexiblen Zwischenraum,
-        # sodass KEINE Sicht leer am Boden wirkt.
-        self.geometry('555x778')  # +1 Item-Reihe Hoehe, damit die Inventar-Sicht
-        # (5 Reihen Item-Grid + 'Inventar managen') bei scaling 1.0 voll passt
-        self.resizable(False, False)
+        # Keep the designed height but allow users to widen the window for
+        # layouts with longer labels or larger display scaling.
+        self.geometry('555x778')
+        self.resizable(True, False)
+        self.minsize(555, 778)
         self.configure(fg_color=BG)
 
         # -- Zustand -----------------------------------------------------
@@ -184,13 +179,8 @@ class App(
         self._update_info = None
         self._update_banner = None
         # Statistik-Default: hack.py ersetzt das durch die geladene stats.json
-        # (app._stats). Hier ein sicherer Default, damit der Ranking-Tab auch
-        # ausserhalb von hack.py (z.B. Tests, Standalone) nie auf ein fehlendes
-        # Attribut laeuft. Cache fuer die zufaellige install_id + Block-Status
-        # ebenfalls vorinitialisiert.
+        # (app._stats). Hier ein sicherer Default fuer Tests und Standalone.
         self._stats = None
-        self._install_id = None
-        self._ranking_banned = False
         # Optional final-flush hook for persistent stats. hack.py owns stats.json
         # and registers a callable here so EVERY exit path (window close, tray
         # quit, timer auto-close, update-restart) flushes accrued runtime to disk
@@ -237,19 +227,9 @@ class App(
         # Einmalige, nicht-blockierende Versionspruefung ~1.2s nach Start.
         self.after(1200, self._kick_off_update_check)
 
-        # Ranking-Status (_ranking_banned) bereits oben vorinitialisiert.
-        self._telemetry_thread = None
-
-        # Onboarding (erster Start: Name + Transparenz-Hinweis) NACH dem Aufbau
-        # planen. Streng defensiv -- ein Fehler hier darf den Start nie kippen.
-        # Identitaet (zufaellige install_id) ZUERST + auf dem GUI-Thread sichern
-        # -- vor Onboarding/Telemetrie. Persistiert sofort (s. _ensure_install_id)
-        # -> stabile Leaderboard-Identitaet ueber Neustarts (kein Re-Onboarding,
-        # keine doppelten Eintraege).
-        self.after(600, self._ensure_install_id)
+        # Onboarding (erster Start: optionaler lokaler Anzeigename) nach dem
+        # Aufbau planen. Es wird keine Ranglisten-Telemetrie gestartet.
         self.after(700, self._maybe_onboard)
-        # Anonymer Telemetrie-Sender (Daemon-Thread) ~1.5s nach Start anwerfen.
-        self.after(1500, self._start_telemetry)
 
     # -- Fenster-Icon / Render -------------------------------------------
 
@@ -331,15 +311,6 @@ class App(
         if view in ('fishing', 'puzzle') and not self.controller.running:
             self.controller.set_mode(view)
             self._cfg = self.controller.current_config()
-        # Ranking-Tab: beim OEFFNEN die Rangliste laden (out-of-band Submit +
-        # Fetch laufen auf einem Worker; der 30s-Cache daempft Wiederholungen).
-        # Streng defensiv -- ein Fehler hier darf den Ansichtswechsel nie kippen.
-        if view == 'ranking':
-            try:
-                from interface import ranking_view
-                ranking_view.refresh_leaderboard(self)
-            except Exception:
-                pass
         self.sync_controls()   # Hero-Text + Lauf-Punkte fuer den neuen Modus
 
     # -- Event-Handler ----------------------------------------------------

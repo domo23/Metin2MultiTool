@@ -65,26 +65,13 @@ class TestPrivacyDefaultsLocked(unittest.TestCase):
     def setUp(self):
         self.cfg = config.validate(config.DEFAULTS)
 
-    def test_anonymous_defaults(self):
-        # Anonymous always-on model: install_id starts empty (lazy), consent
-        # starts undecided (onboarding shows once), 'enabled' is vestigial-True
-        # (no opt-out -- the transparency notice + README are the basis).
+    def test_telemetry_defaults_are_local_only(self):
         tel = self.cfg['telemetry']
-        self.assertEqual(tel['install_id'], '')
+        self.assertEqual(set(tel), {'consented', 'rating_prompted'})
         self.assertFalse(tel['consented'])
-        self.assertTrue(tel['enabled'])
 
     def test_username_empty_by_default(self):
         self.assertEqual(self.cfg['username'], '')
-
-    def test_placeholder_urls_are_https(self):
-        tel = self.cfg['telemetry']
-        self.assertTrue(tel['submit_url'].startswith('https://'))
-        self.assertTrue(tel['leaderboard_url'].startswith('https://'))
-
-    def test_interval_default(self):
-        self.assertEqual(self.cfg['telemetry']['interval_s'],
-                         config.TELEMETRY_INTERVAL_DEFAULT)
 
 
 class TestByteStableFishingDefaults(unittest.TestCase):
@@ -124,11 +111,14 @@ class TestEventDefaultsLocked(unittest.TestCase):
 
 
 class TestCapsSynced(unittest.TestCase):
-    def test_client_server_caps_match_config(self):
-        from telemetry import payload
-        self.assertEqual(config.USERNAME_MAXLEN, payload.USERNAME_MAXLEN)
-        self.assertEqual(config.STATS_MAX_COUNT, payload._MAX_COUNT)
-        self.assertEqual(config.STATS_MAX_RUNTIME_S, payload._MAX_RUNTIME_S)
+    def test_legacy_endpoint_settings_are_not_retained(self):
+        cfg = config.validate({'telemetry': {
+            'submit_url': 'https://example.invalid/submit',
+            'leaderboard_url': 'https://example.invalid/leaderboard',
+            'install_id': 'old-id',
+        }})
+        self.assertEqual(set(cfg['telemetry']),
+                         {'consented', 'rating_prompted'})
 
 
 class TestRun1I18nParity(unittest.TestCase):

@@ -1,226 +1,43 @@
-# -*- coding: utf-8 -*-
-"""Run-1 QA: telemetry contract -- payload shape, opt-in gate, HWID, sender.
+"""Regression tests for removal of online leaderboard telemetry."""
 
-Complements test_telemetry_payload_hwid.py and test_telemetry_client.py with the
-contract-level guarantees the spec calls out explicitly:
-
-  * PAYLOAD SHAPE is byte-identical to the server's SubmitIn schema (same keys,
-    same client/server caps) so a built payload always validates server-side.
-  * The anonymous always-on COUNTER is gated only by "id + url present, not
-    blocked": a snapshot with an install id (carried as ``hwid``) + url sends
-    WITHOUT a chosen username; an empty id/url or a blocked snapshot sends
-    nothing. There is no user opt-out.
-  * The install id is RANDOM (uuid4 hex), unique per generation, bounded length,
-    and carries NO device fingerprint.
-  * The SENDER never throws on a network error -- it backs off and keeps the
-    thread alive; a 'banned' reply stops it and emits 'banned' exactly once.
-
-Network is always mocked; the sender uses a short interval + stop event so the
-threaded cases finish fast. Stdlib unittest + mock.
-"""
-
-import json
-import threading
-import time
 import unittest
-from datetime import datetime, timezone
 from unittest import mock
+from urllib import request
 
-from telemetry import payload, hwid, client
-from interface import config as cfgmod
-
-# The server schema is the contract; import its field set if fastapi/pydantic is
-# available, else fall back to the documented literal (kept in sync by design).
-try:
-    from server.app.schemas import SubmitIn
-    _SERVER_FIELDS = set(SubmitIn.model_fields.keys()) \
-        if hasattr(SubmitIn, 'model_fields') else None
-except Exception:
-    _SERVER_FIELDS = None
-
-_EXPECTED_FIELDS = {
-    'username', 'hwid', 'fishing_catches', 'puzzles_solved',
-    'fishing_runtime_s', 'puzzler_runtime_s', 'app_version', 'ts'}
+from interface import config
+from interface.app.lifecycle import LifecycleMixin
+from telemetry import client
 
 
-class _FakeResp:
-    def __init__(self, body, status=200):
-        self._body = body.encode('utf-8') if isinstance(body, str) else body
-        self.status = status
+class TestTelemetryRemoved(unittest.TestCase):
+    def test_old_network_configuration_is_discarded(self):
+        cfg = config.validate({'telemetry': {
+            'install_id': 'old-install-id',
+            'enabled': True,
+            'submit_url': 'https://example.invalid/submit',
+            'leaderboard_url': 'https://example.invalid/leaderboard',
+            'interval_s': 120,
+            'consented': True,
+        }})
+        self.assertEqual(cfg['telemetry'], {
+            'consented': True, 'rating_prompted': False})
 
-    def __enter__(self):
-        return self
+    def test_application_has_no_telemetry_sender_hooks(self):
+        self.assertFalse(hasattr(LifecycleMixin, '_ensure_install_id'))
+        self.assertFalse(hasattr(LifecycleMixin, '_telemetry_state'))
+        self.assertFalse(hasattr(LifecycleMixin, '_start_telemetry'))
 
-    def __exit__(self, *a):
-        return False
-
-    def read(self):
-        return self._body
-
-
-class TestPayloadShapeMatchesServer(unittest.TestCase):
-    def _payload(self):
-        now = datetime(2025, 6, 1, 12, 0, tzinfo=timezone.utc)
-        stats = {'fishing_catches': 5, 'puzzles_solved': 2,
-                 'fishing_runtime_s': 12.5, 'puzzler_runtime_s': 3.0}
-        return payload.build_submit('bob', 'h' * 32, stats, '1.0.5', now)
-
-    def test_keys_exactly_match_expected(self):
-        self.assertEqual(set(self._payload()), _EXPECTED_FIELDS)
-
-    @unittest.skipUnless(_SERVER_FIELDS is not None,
-                         'server schema unavailable')
-    def test_keys_match_server_schema(self):
-        self.assertEqual(set(self._payload()), _SERVER_FIELDS)
-
-    def test_client_caps_equal_server_caps(self):
-        # The defensive caps must line up with the server's so a max-length
-        # value the client allows is not rejected (and vice-versa).
-        self.assertEqual(payload.USERNAME_MAXLEN, 32)
-        self.assertEqual(payload.HWID_MAXLEN, 64)
-        self.assertEqual(payload.APP_VERSION_MAXLEN, 32)
-
-    def test_built_payload_is_json_serialisable(self):
-        json.dumps(self._payload())   # raises if any value is non-serialisable
-
-    def test_types_are_wire_correct(self):
-        p = self._payload()
-        self.assertIsInstance(p['fishing_catches'], int)
-        self.assertIsInstance(p['fishing_runtime_s'], float)
-        self.assertIsInstance(p['ts'], int)
-        self.assertIsInstance(p['username'], str)
-
-    @unittest.skipUnless(_SERVER_FIELDS is not None,
-                         'server schema unavailable')
-    def test_built_payload_validates_against_server_schema(self):
-        # End-to-end: a payload built by the client passes SubmitIn untouched.
-        SubmitIn(**self._payload())
-
-
-class TestAnonymousAlwaysOnGate(unittest.TestCase):
-    def test_config_default_install_id_empty_enabled_vestigial(self):
-        # install_id starts empty (filled lazily on first send); 'enabled' is a
-        # vestigial always-true flag (no opt-out); consent starts undecided.
-        cfg = cfgmod.validate(cfgmod.DEFAULTS)
-        self.assertEqual(cfg['telemetry']['install_id'], '')
-        self.assertTrue(cfg['telemetry']['enabled'])
-        self.assertFalse(cfg['telemetry']['consented'])
-
-    def test_config_default_username_empty(self):
-        self.assertEqual(cfgmod.validate(cfgmod.DEFAULTS)['username'], '')
-
-    def test_gated_allows_without_username(self):
-        # Anonymous counter: an install id (carried as 'hwid') + url is enough;
-        # NO chosen username required.
-        self.assertTrue(client._gated(
-            {'enabled': True, 'hwid': 'idabc', 'username': '',
-             'submit_url': 'https://x/s'}))
-
-    def test_gated_blocks_empty_install_id(self):
-        self.assertFalse(client._gated(
-            {'enabled': True, 'hwid': '', 'submit_url': 'https://x/s'}))
-
-    def test_gated_blocks_empty_url(self):
-        self.assertFalse(client._gated(
-            {'enabled': True, 'hwid': 'idabc', 'submit_url': ''}))
-
-    def test_gated_blocks_when_blocked(self):
-        # 'enabled' False is the BLOCKED stop-signal: halts sending.
-        self.assertFalse(client._gated(
-            {'enabled': False, 'hwid': 'idabc', 'submit_url': 'https://x/s'}))
-
-
-class TestInstallIdRandomAnonymous(unittest.TestCase):
-    def test_random_unique_across_calls(self):
-        ids = {hwid.new_install_id() for _ in range(100)}
-        self.assertEqual(len(ids), 100)
-
-    def test_hex_only_and_bounded(self):
-        i = hwid.new_install_id()
-        self.assertEqual(len(i), 32)
-        int(i, 16)   # opaque lowercase hex
-        self.assertTrue(all(c in '0123456789abcdef' for c in i))
-
-    def test_no_hardware_derivation_remains(self):
-        # No device fingerprint API survives the model change.
-        for gone in ('compute_hwid', '_read_machine_guid', '_read_volume_serial'):
-            self.assertFalse(hasattr(hwid, gone))
-
-    def test_get_hwid_shim_is_stable_within_process(self):
-        self.assertEqual(hwid.get_hwid(), hwid.get_hwid())
-
-
-class TestSenderRobustness(unittest.TestCase):
-    def tearDown(self):
-        client.stop_sender()
-        time.sleep(0.05)
-
-    def _state(self, **over):
-        # Anonymous gate: top-level 'hwid' = the install id (required); a chosen
-        # username is optional. Mirrors the real _telemetry_state snapshot.
-        s = {'enabled': True, 'hwid': 'idabc', 'username': '',
-             'submit_url': 'https://x/submit', 'interval_s': 1,
-             'payload': {'hwid': 'idabc'}}
-        s.update(over)
-        return s
-
-    def test_disabled_never_posts(self):
-        with mock.patch('urllib.request.urlopen',
-                        side_effect=AssertionError('must not POST')) as m:
-            client.start_sender(lambda: self._state(enabled=False), interval=1)
-            time.sleep(0.3)
-            client.stop_sender()
-            time.sleep(0.1)
-        self.assertEqual(m.call_count, 0)
-
-    def test_network_error_does_not_kill_thread(self):
-        seen = []
-        backoff = threading.Event()
-
-        def on_status(s):
-            seen.append(s)
-            if str(s).startswith('backoff'):
-                backoff.set()
-
-        with mock.patch('urllib.request.urlopen',
-                        side_effect=OSError('network down')):
-            th = client.start_sender(lambda: self._state(),
-                                     on_status=on_status, interval=1)
-            fired = backoff.wait(2.0)
-            # Thread survives the error and is still alive (backing off).
-            alive = th.is_alive() if th else False
-            client.stop_sender()
-        self.assertTrue(fired, 'sender should back off, not die')
-        self.assertTrue(alive)
-        self.assertTrue(any(str(s).startswith('backoff') for s in seen))
-
-    def test_banned_stops_sender_once(self):
-        statuses = []
-        done = threading.Event()
-
-        def on_status(s):
-            statuses.append(s)
-            if s == 'banned':
-                done.set()
-
-        with mock.patch('urllib.request.urlopen',
-                        return_value=_FakeResp(json.dumps({'status': 'banned'}))):
-            client.start_sender(lambda: self._state(), on_status=on_status,
-                                interval=1)
-            fired = done.wait(2.0)
-        self.assertTrue(fired)
-        self.assertEqual(statuses.count('banned'), 1)
-        time.sleep(0.1)
-        self.assertFalse(
-            client._sender_thread.is_alive() if client._sender_thread else False)
-
-    def test_post_submit_never_raises_on_any_network_error(self):
-        for exc in (OSError('x'), ValueError('y'), Exception('z')):
-            with mock.patch('urllib.request.urlopen', side_effect=exc):
-                status, data = client.post_submit('https://x/s', {'hwid': 'h'})
-            self.assertEqual(status, 'error')
-            self.assertIsNone(data)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_legacy_client_apis_make_no_request(self):
+        with mock.patch.object(
+                request, 'urlopen',
+                side_effect=AssertionError('network access is disabled')) as urlopen:
+            self.assertEqual(client.post_submit(
+                'https://example.invalid/submit', {'data': 'private'}),
+                ('error', None))
+            self.assertIsNone(client.fetch_leaderboard(
+                'https://example.invalid/leaderboard'))
+            self.assertTrue(client.check_name(
+                'https://example.invalid/leaderboard', 'local-name', 'id')
+                ['available'])
+            self.assertIsNone(client.start_sender(lambda: {}))
+        urlopen.assert_not_called()

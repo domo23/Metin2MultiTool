@@ -65,8 +65,7 @@ _stats = statsmod.load()
 # debuglog. Wir greifen die fertigen Instanzen ueber den Controller ab.
 app = App(cfg)
 
-# Statistik auf der App ablegen, damit der Ranking-Tab (interface.ranking_view)
-# und der Telemetrie-Snapshot (app._telemetry_state) sie live lesen koennen.
+# Statistik auf der App ablegen, damit lokale Statistikansichten sie lesen.
 app._stats = _stats
 
 # Lauf-Verdrahtung: registriert Stats-Hook + Counter-Hook + Start/Stop-Callbacks

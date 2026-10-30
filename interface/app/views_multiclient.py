@@ -144,11 +144,11 @@ class MulticlientViewMixin:
     def _mc_build_row(self, i, slot):
         row = ctk.CTkFrame(self._mc_rows, fg_color=PANEL_LIGHT, corner_radius=10)
         row.grid(row=i, column=0, sticky='ew', pady=3)
-        row.grid_columnconfigure(4, weight=1)
+        row.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(row, text=t('ui.mc_client_label', n=i + 1), text_color=TEXT,
                      font=ctk.CTkFont(size=12, weight='bold'), width=72).grid(
-            row=0, column=0, padx=(10, 6), pady=8, sticky='w')
+            row=0, column=0, padx=(10, 6), pady=(8, 4), sticky='w')
 
         # Modus-Dropdown.
         labels = [t(k) for _v, k in MC_MODE_KEYS]
@@ -157,27 +157,33 @@ class MulticlientViewMixin:
         ctk.CTkOptionMenu(
             row, variable=var, values=labels, width=150,
             command=lambda lbl, idx=i: self._mc_on_mode(idx, lbl)).grid(
-            row=0, column=1, padx=(0, 8), sticky='w')
+            row=0, column=1, padx=(0, 10), pady=(8, 4), sticky='w')
+
+        controls = ctk.CTkFrame(row, fg_color='transparent')
+        controls.grid(row=1, column=0, columnspan=2, sticky='ew',
+                      padx=10, pady=(0, 8))
+        controls.grid_columnconfigure(2, weight=1)
 
         # "Fenster markieren".
         mark = ctk.CTkButton(
-            row, text=t('ui.mc_mark_btn'), width=140, height=30, corner_radius=8,
+            controls, text=t('ui.mc_mark_btn'), width=140, height=30,
+            corner_radius=8,
             fg_color=PANEL_HOVER, hover_color=TEAL_SOFT, text_color=TEXT,
             command=lambda idx=i: self._mc_begin_mark(idx))
-        mark.grid(row=0, column=2, padx=(0, 6), sticky='w')
+        mark.grid(row=0, column=0, padx=(0, 6), sticky='w')
         self._mc_mark_btns[i] = mark
 
         # "Blinken" (Bestaetigung sichtbar machen).
         ctk.CTkButton(
-            row, text=t('ui.mc_flash_btn'), width=64, height=30, corner_radius=8,
+            controls, text=t('ui.mc_flash_btn'), width=64, height=30, corner_radius=8,
             fg_color='transparent', hover_color=PANEL_HOVER, text_color=TEXT_FAINT,
             command=lambda idx=i: self._mc_flash(idx)).grid(
-            row=0, column=3, padx=(0, 8), sticky='w')
+            row=0, column=1, padx=(0, 8), sticky='w')
 
         # Status.
-        lbl = ctk.CTkLabel(row, text='', anchor='w', text_color=TEXT_FAINT,
+        lbl = ctk.CTkLabel(controls, text='', anchor='w', text_color=TEXT_FAINT,
                            font=ctk.CTkFont(size=11))
-        lbl.grid(row=0, column=4, padx=(0, 10), sticky='w')
+        lbl.grid(row=0, column=2, sticky='ew')
         self._mc_status_lbls[i] = lbl
         self._mc_refresh_row(i)
 

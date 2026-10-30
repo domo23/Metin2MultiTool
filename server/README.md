@@ -3,6 +3,8 @@
 **Artifacts + plan ONLY.** Nothing here connects to or modifies any live server.
 This directory is the design, code, and config for the optional online ranking
 backend; the actual deployment is a separate manual step you run yourself.
+The desktop app no longer connects to this backend or sends leaderboard data.
+It remains available for independent deployments or other clients.
 
 ## What it is
 
@@ -38,7 +40,10 @@ FastAPI + uvicorn + pydantic, in its **own** container:
 A Go binary was considered; the honor-system leaderboard does not justify a
 second language/toolchain in this repo.
 
-## How it maps to the client
+## Former desktop-client contract (inactive)
+
+The following describes the retired desktop integration; it is not active in
+the current app.
 
 | Client (`telemetry/`)              | Server                                      |
 | ---------------------------------- | ------------------------------------------- |

@@ -292,21 +292,17 @@ class SettingsViewMixin:
              'start': start_entry, 'end': end_entry})
 
     def _build_ranking_card(self, parent, row):
-        """Ranking: ein-Zeilen-Transparenz-Hinweis + (optionaler) Anzeigename.
-
-        Kein Opt-in/Opt-out-Schalter mehr -- der anonyme Zaehler laeuft immer.
-        Der Name ist das EINZIGE, das Identitaet preisgibt: leer = anonymer
-        Zufallsname; etwas eintragen = diesen Namen zeigen."""
+        """Local display name and privacy notice; no online ranking controls."""
         card = Section(parent, t('ui.group_ranking'))
         card.grid(row=row, column=0, sticky='ew', pady=(0, 4))
         body = card.body
         body.grid_columnconfigure(0, weight=1)
-        # Ein-Zeilen-Transparenz-Hinweis (ersetzt den Opt-in-Schalter).
+        # Explain that this name remains local and no leaderboard traffic occurs.
         ctk.CTkLabel(body, text=t('ui.ranking_transparency'), anchor='w',
                      justify='left', text_color=TEXT_MUTED, wraplength=380,
                      font=ctk.CTkFont(size=10)).grid(
             row=0, column=0, sticky='w', pady=(0, 4))
-        # Ranglisten-Name (top-level username).
+        # Local display name (top-level username).
         name_row = ctk.CTkFrame(body, fg_color='transparent')
         name_row.grid(row=1, column=0, sticky='ew', pady=3)
         name_row.grid_columnconfigure(0, weight=1)
@@ -324,11 +320,8 @@ class SettingsViewMixin:
         self._username_entry.grid(row=0, column=1, sticky='e')
         self._username_entry.insert(0, self._cfg.get('username', ''))
         self._username_entry.bind('<KeyRelease>', self._on_username_change)
-        # Commit on leaving the field / pressing Enter: save -> push to the server
-        # -> reload the ranking (Enter also drops focus). KeyRelease above keeps
-        # the config live while typing; the network side fires once here, and only
-        # when the name actually changed (see _on_username_commit).
-        self._last_pushed_username = self._cfg.get('username', '')
+        # Commit on leaving the field / pressing Enter. KeyRelease keeps the
+        # local config live while typing.
         self._username_entry.bind('<FocusOut>', self._on_username_commit, add='+')
         self._username_entry.bind(
             '<Return>',

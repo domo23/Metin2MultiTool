@@ -487,27 +487,10 @@ trained_solver.py  AI puzzle solver (MDP)        version.py    single version so
 fishingbot.py      fishing core (original)       puzzle.py     puzzle core (original base)
 ```
 
-## 📊 Anonymous usage stats & leaderboard / Anonyme Nutzungs-Statistik & Rangliste
+## Privacy and leaderboard
 
-**English.** The app includes a small, always-on **anonymous** usage counter that
-powers an online **leaderboard**.
-
-- **What is collected:** a **random per-install id** (a `uuid4` generated once and
-  stored locally — _not_ a device fingerprint) plus a few **counters** (catches,
-  solved puzzles, fishing / puzzle runtime) and the **app version**. **No personal
-  data.**
-- **Everyone appears anonymously** under a generated funny name derived from the
-  random id (same id → same name, e.g. `BraveTuna#4711`).
-- **Opting in = your chosen name.** Typing a name in onboarding or
-  _Settings → Ranking_ only **reveals that name** on the leaderboard. Clearing it
-  returns you to the anonymous name. The chosen name is the _only_ potentially
-  identifying datum and is strictly optional.
-- **Anti-cheat moderation:** an install id can be **blocked** from the board and a
-  chosen name can be **hidden** (it then shows the anonymous name). Neither is a
-  durable person-ban — the random id is rotatable by editing this open-source
-  client, so this is mass-protection only.
-- **No raw IP is stored** (only a salted hash, then discarded).
-- **Removal:** ask via the project page to be erased by install id or by name.
+The desktop app no longer submits usage statistics or requests an online
+leaderboard. The optional display name is stored only in the local configuration.
 
 **Deutsch.** Die App enthält einen kleinen, immer aktiven **anonymen** Nutzungs-
 Zähler für eine Online-**Rangliste**.

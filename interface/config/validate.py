@@ -36,7 +36,6 @@ from .defaults import (
     EVENT_WARN_MIN_MAX,
     GOLDEN_TUNA_ACTIONS,
     HOTKEY_TOKENS,
-    INSTALL_ID_MAXLEN,
     KEYPOINT_KEYS,
     OVERLAY_OPACITY_MAX,
     OVERLAY_OPACITY_MIN,
@@ -45,10 +44,6 @@ from .defaults import (
     PUZZLE_DELAY_MAX,
     PUZZLE_DELAY_MIN,
     SOLVER_MODES,
-    TELEMETRY_INTERVAL_DEFAULT,
-    TELEMETRY_INTERVAL_MAX,
-    TELEMETRY_INTERVAL_MIN,
-    URL_MAXLEN,
     USERNAME_MAXLEN,
     WEEKDAYS,
 )
@@ -120,41 +115,6 @@ def _validate_weekday(value, fallback):
     except (TypeError, ValueError):
         return fallback
     return day if day in WEEKDAYS else fallback
-
-
-def _validate_url(value, fallback):
-    """Akzeptiert NUR eine ``https://``-URL (auf URL_MAXLEN gekappt), sonst
-    ``fallback``.
-
-    Telemetrie sendet Username + HWID + Stats -- die Spec verlangt HTTPS. Klartext
-    ``http://`` (oder andere Schemata wie ftp:/javascript:/file:) wird daher
-    abgelehnt und faellt auf den HTTPS-Default zurueck, damit nie versehentlich
-    unverschluesselt gesendet wird. Bewusst minimal -- nur Schema + Laenge; KEIN
-    Netzwerk-/DNS-Check (rein, offline-testbar). Wirft nie."""
-    try:
-        s = str(value).strip()
-    except Exception:
-        return fallback
-    if not s:
-        return fallback
-    if not s.lower().startswith('https://'):
-        return fallback
-    return s[:URL_MAXLEN]
-
-
-def _validate_install_id(value):
-    """Normalisiert die zufaellige install_id -> gestrippter, kleingeschriebener
-    String, auf INSTALL_ID_MAXLEN gekappt; '' bei None/Junk.
-
-    Erzeugt NIE einen Wert (das uebernimmt die App/das Thin-Modul lazy), damit
-    ``validate`` rein/deterministisch/idempotent bleibt (Tests). Wirft nie."""
-    if value is None:
-        return ''
-    try:
-        s = str(value).strip().lower()
-    except Exception:
-        return ''
-    return s[:INSTALL_ID_MAXLEN]
 
 
 def _validate_event_window(value, default):
@@ -372,26 +332,15 @@ def validate(cfg):
             name = ''
         merged['username'] = name[:USERNAME_MAXLEN]
 
-        # -- Telemetrie: anonymer Immer-An-Zaehler. install_id (zufaellig)
-        #    gestrippt/gekappt (NIE hier erzeugt). 'enabled' ist vestigial ->
-        #    default True, KEIN Opt-out mehr. consented merkt die Onboarding-
-        #    Entscheidung. URLs HTTPS-only, Intervall geklemmt.
+        # -- Legacy Telemetrie-Einstellungen verwerfen. Only ``consented``
+        #    remains to avoid repeating the local first-run dialog.
         telemetry = merged.setdefault('telemetry',
                                       copy.deepcopy(DEFAULTS['telemetry']))
-        telemetry['install_id'] = _validate_install_id(
-            telemetry.get('install_id'))
-        telemetry['enabled'] = bool(telemetry.get('enabled', True))
-        telemetry['consented'] = bool(telemetry.get('consented', False))
-        telemetry['submit_url'] = _validate_url(
-            telemetry.get('submit_url'), DEFAULTS['telemetry']['submit_url'])
-        telemetry['leaderboard_url'] = _validate_url(
-            telemetry.get('leaderboard_url'),
-            DEFAULTS['telemetry']['leaderboard_url'])
-        interval = _coerce_int(telemetry.get('interval_s'),
-                               TELEMETRY_INTERVAL_DEFAULT)
-        telemetry['interval_s'] = int(_clamp(
-            interval, TELEMETRY_INTERVAL_MIN, TELEMETRY_INTERVAL_MAX,
-            TELEMETRY_INTERVAL_DEFAULT))
+        telemetry = {
+            'consented': bool(telemetry.get('consented', False)),
+            'rating_prompted': bool(telemetry.get('rating_prompted', False)),
+        }
+        merged['telemetry'] = telemetry
 
         # -- Fish-Event-Fenster: GENAU zwei (gegen die jeweiligen Defaults
         #    validiert), warn_minutes geklemmt (0=aus), Zeitzone fix.
@@ -578,7 +527,7 @@ def _validate_keypoints(value):
 __all__ = [
     'merge_defaults', 'validate',
     '_clamp', '_enum', '_coerce_int', '_validate_key', '_validate_hhmm',
-    '_validate_weekday', '_validate_url', '_validate_install_id',
+    '_validate_weekday',
     '_validate_event_window', '_deep_merge', '_validate_offset',
     '_validate_size', '_validate_keypoints', '_validate_energiesplitter',
 ]

@@ -639,33 +639,25 @@ TRANSLATIONS = {
     'ui.leaderboard_loading': {'en': 'Loading leaderboard...', 'de': 'Lade Rangliste ...'},
     'ui.leaderboard_fetch_failed': {'en': 'Could not load the leaderboard - check your connection and try again.', 'de': 'Rangliste konnte nicht geladen werden - prüfe die Verbindung und versuche es erneut.'},
     'ui.leaderboard_empty': {'en': 'No entries yet - be the first!', 'de': 'Noch keine Einträge - sei der Erste!'},
-    'ui.ranking_telemetry_off': {'en': 'Usage stats are collected anonymously under a random id; everyone appears under an anonymous name. Enter a name in Settings -> Ranking to appear with it instead.', 'de': 'Nutzungs-Statistik wird anonym unter einer zufälligen ID erfasst; alle erscheinen unter einem anonymen Namen. Trage in Einstellungen -> Rangliste einen Namen ein, um stattdessen mit ihm zu erscheinen.'},
-    'ui.ranking_banned': {'en': 'This installation was removed from the ranking. Local stats keep counting.', 'de': 'Diese Installation wurde aus der Rangliste entfernt. Die lokale Statistik zählt weiter.'},
-    'ui.ranking_transparency': {'en': 'Usage stats are collected anonymously under a random id. Everyone appears under an anonymous name; entering a name only reveals that name here.', 'de': 'Nutzungs-Statistik wird anonym unter einer zufälligen ID erfasst. Alle erscheinen unter einem anonymen Namen; ein Name wird nur sichtbar, wenn du ihn einträgst.'},
+    'ui.ranking_telemetry_off': {'en': 'Online leaderboard traffic is disabled.', 'de': 'Datenverkehr zur Online-Rangliste ist deaktiviert.'},
+    'ui.ranking_banned': {'en': 'Online leaderboard traffic is disabled.', 'de': 'Datenverkehr zur Online-Rangliste ist deaktiviert.'},
+    'ui.ranking_transparency': {'en': 'Online leaderboard and stats uploads have been removed. The app does not send your usage stats or display name to a leaderboard.', 'de': 'Die Online-Rangliste und Statistik-Uploads wurden entfernt. Die App sendet weder Nutzungsstatistiken noch Anzeigenamen an eine Rangliste.'},
+    'ui.ranking_removed': {'en': 'The online leaderboard has been removed. No ranking data is sent.', 'de': 'Die Online-Rangliste wurde entfernt. Es werden keine Ranglistendaten gesendet.'},
 
     # -- Settings: Ranking/Telemetry card -----------------------------------
-    'ui.group_ranking': {'en': 'Ranking (online)', 'de': 'Rangliste (online)'},
-    'ui.ranking_username': {'en': 'Ranking name', 'de': 'Ranglisten-Name'},
-    'ui.ranking_username_sub': {'en': 'Leave empty to appear under a random anonymous name', 'de': 'Leer lassen, um unter einem zufälligen anonymen Namen zu erscheinen'},
+    'ui.group_ranking': {'en': 'Local display name', 'de': 'Lokaler Anzeigename'},
+    'ui.ranking_username': {'en': 'Display name', 'de': 'Anzeigename'},
+    'ui.ranking_username_sub': {'en': 'Stored locally only; never uploaded', 'de': 'Wird nur lokal gespeichert und nie hochgeladen'},
 
     # -- Onboarding (first-run name + transparency notice) ------------------
-    'ui.onboarding_title': {'en': 'Welcome - choose a ranking name (optional)', 'de': 'Willkommen - wähle einen Ranglisten-Namen (optional)'},
-    'ui.onboarding_intro': {'en': 'Usage stats are collected anonymously under a random id, and everyone appears on the leaderboard under a generated anonymous name. You can optionally enter a name to appear with it instead - or leave it empty and stay anonymous. Change it later in Settings.', 'de': 'Nutzungs-Statistik wird anonym unter einer zufälligen ID erfasst, und alle erscheinen auf der Rangliste unter einem generierten anonymen Namen. Du kannst optional einen Namen eintragen, um stattdessen mit ihm zu erscheinen - oder leer lassen und anonym bleiben. Später in den Einstellungen änderbar.'},
-    'ui.onboarding_username_label': {'en': 'Ranking name', 'de': 'Ranglisten-Name'},
-    'ui.onboarding_username_hint': {'en': 'Optional. Do not use your real name, email or any personal data. Leave empty to stay anonymous.', 'de': 'Optional. Verwende nicht deinen echten Namen, deine E-Mail oder andere persönliche Daten. Leer lassen, um anonym zu bleiben.'},
-    'ui.onboarding_transparency': {'en': 'Privacy: this hobby, open-source tool collects an anonymous random per-install id + your stats (catches, solved puzzles, runtimes, app version) over HTTPS. No personal data unless you type a chosen name - which only reveals that name on the leaderboard. No raw IP is stored. Ask for deletion via the project page.', 'de': 'Datenschutz: Dieses Hobby-Open-Source-Tool erfasst eine anonyme zufällige Pro-Installation-ID + deine Statistik (Fänge, gelöste Puzzles, Laufzeiten, App-Version) per HTTPS. Keine personenbezogenen Daten, außer du trägst einen Namen ein - der nur diesen Namen auf der Rangliste zeigt. Keine rohe IP wird gespeichert. Löschung über die Projektseite anfragen.'},
-    'ui.onboarding_whatissent': {'en': 'What is sent: a random install id, catches, solved puzzles, fishing/puzzle runtime, app version, and a name only if you enter one. Nothing else.', 'de': 'Was gesendet wird: eine zufällige Installations-ID, Fänge, gelöste Puzzles, Angel-/Puzzle-Laufzeit, App-Version, und ein Name nur, wenn du einen einträgst. Sonst nichts.'},
+    'ui.onboarding_title': {'en': 'Welcome - choose a display name (optional)', 'de': 'Willkommen - wähle einen Anzeigenamen (optional)'},
+    'ui.onboarding_intro': {'en': 'The online leaderboard has been removed. You may set an optional display name for local use; it is not sent anywhere. Change it later in Settings.', 'de': 'Die Online-Rangliste wurde entfernt. Du kannst optional einen lokalen Anzeigenamen festlegen; er wird nirgendwohin gesendet. Du kannst ihn später in den Einstellungen ändern.'},
+    'ui.onboarding_username_label': {'en': 'Display name', 'de': 'Anzeigename'},
+    'ui.onboarding_username_hint': {'en': 'Optional. This name is stored locally only.', 'de': 'Optional. Dieser Name wird nur lokal gespeichert.'},
+    'ui.onboarding_transparency': {'en': 'Privacy: ranking submissions and leaderboard requests are disabled. The optional display name stays in your local configuration.', 'de': 'Datenschutz: Ranglisten-Übermittlungen und Ranglisten-Anfragen sind deaktiviert. Der optionale Anzeigename bleibt in deiner lokalen Konfiguration.'},
+    'ui.onboarding_whatissent': {'en': 'Nothing is sent to the former leaderboard service.', 'de': 'An den früheren Ranglisten-Dienst werden keine Daten gesendet.'},
     'ui.onboarding_save': {'en': 'Save', 'de': 'Speichern'},
     'ui.onboarding_skip': {'en': 'Skip', 'de': 'Überspringen'},
-    'ui.onboarding_checking': {'en': 'Checking name availability...', 'de': 'Prüfe Namensverfügbarkeit...'},
-    'ui.onboarding_name_taken': {'en': 'That name is already taken. Please choose another - or Skip to stay anonymous.', 'de': 'Dieser Name ist bereits vergeben. Bitte wähle einen anderen - oder Überspringen, um anonym zu bleiben.'},
-
-    # -- Telemetry log lines -------------------------------------------------
-    'telemetry.sender_started': {'en': 'Ranking sender started (every {interval}s)', 'de': 'Ranglisten-Sender gestartet (alle {interval}s)'},
-    'telemetry.sender_stopped': {'en': 'Ranking sender stopped', 'de': 'Ranglisten-Sender gestoppt'},
-    'telemetry.sender_banned': {'en': 'This installation was banned from the ranking - sending stopped', 'de': 'Diese Installation wurde aus der Rangliste gesperrt - Senden gestoppt'},
-    'telemetry.sender_backoff': {'en': 'Ranking submit failed, retrying in {seconds}s', 'de': 'Ranglisten-Übermittlung fehlgeschlagen, neuer Versuch in {seconds}s'},
-    'telemetry.submit_ok': {'en': 'Ranking stats submitted', 'de': 'Ranglisten-Statistik übermittelt'},
 
     # -- Event warning log (fired once per window edge by hack._tick) -------
     'events.warning_before_end': {'en': 'Fish event ends in {minutes} min', 'de': 'Fisch-Event endet in {minutes} min'},

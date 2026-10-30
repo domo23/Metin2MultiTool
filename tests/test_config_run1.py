@@ -115,70 +115,24 @@ class TestEvents(unittest.TestCase):
 
 
 class TestTelemetry(unittest.TestCase):
-    def test_telemetry_defaults_anonymous_always_on(self):
-        # Anonymous always-on model: install_id starts empty (filled lazily on
-        # first send), 'enabled' is now a VESTIGIAL always-true flag (NOT an
-        # opt-out gate), consent (=decided) starts False so onboarding shows once.
+    def test_legacy_telemetry_fields_are_removed(self):
         cfg = config.validate(config.DEFAULTS)
         tel = cfg['telemetry']
-        self.assertEqual(tel['install_id'], '')
-        self.assertTrue(tel['enabled'])              # vestigial True (no opt-out)
         self.assertFalse(tel['consented'])
-        self.assertEqual(tel['interval_s'], config.TELEMETRY_INTERVAL_DEFAULT)
-        self.assertTrue(tel['submit_url'].startswith('https://'))
-        self.assertTrue(tel['leaderboard_url'].startswith('https://'))
-
-    def test_install_id_validated_capped(self):
-        # _validate_install_id: strips, lowercases, caps; '' on None/junk; NEVER
-        # generates (generation is the app/thin-module's job).
-        self.assertEqual(config._validate_install_id(None), '')
-        self.assertEqual(config._validate_install_id('  ABC123  '), 'abc123')
-        self.assertEqual(len(config._validate_install_id('a' * 500)),
-                         config.INSTALL_ID_MAXLEN)
-        # A stored id round-trips through validate() unchanged (stripped/lower).
-        cfg = config.validate({'telemetry': {'install_id': '  DEADBEEF  '}})
-        self.assertEqual(cfg['telemetry']['install_id'], 'deadbeef')
-
-    def test_enabled_defaults_true_when_absent(self):
-        # An old config.json without 'enabled' -> defaults to the vestigial True.
-        cfg = config.validate({'telemetry': {'submit_url':
-                                             'https://my.host/submit'}})
-        self.assertTrue(cfg['telemetry']['enabled'])
-
-    def test_interval_clamped(self):
-        hi = config.validate({'telemetry': {'interval_s': 999999}})
-        self.assertEqual(hi['telemetry']['interval_s'],
-                         config.TELEMETRY_INTERVAL_MAX)
-        lo = config.validate({'telemetry': {'interval_s': 1}})
-        self.assertEqual(lo['telemetry']['interval_s'],
-                         config.TELEMETRY_INTERVAL_MIN)
-
-    def test_bad_url_falls_back(self):
-        cfg = config.validate({'telemetry': {'submit_url': 'ftp://evil'}})
-        self.assertEqual(cfg['telemetry']['submit_url'],
-                         config.DEFAULT_SUBMIT_URL)
-
-    def test_plaintext_http_url_rejected(self):
-        # HTTPS is mandatory for telemetry (username + HWID + stats on the wire);
-        # a plaintext http:// endpoint must fall back to the HTTPS default so we
-        # never transmit in cleartext, even if a config is hand-edited.
-        for bad in ('http://my.host/submit', 'HTTP://my.host/submit',
-                    '  http://my.host/submit  '):
-            cfg = config.validate({'telemetry': {'submit_url': bad}})
-            self.assertEqual(cfg['telemetry']['submit_url'],
-                             config.DEFAULT_SUBMIT_URL)
-            self.assertTrue(
-                cfg['telemetry']['submit_url'].startswith('https://'))
-
-    def test_https_url_kept(self):
-        cfg = config.validate(
-            {'telemetry': {'submit_url': 'https://my.host/submit'}})
-        self.assertEqual(cfg['telemetry']['submit_url'],
-                         'https://my.host/submit')
+        self.assertFalse(tel['rating_prompted'])
+        cfg = config.validate({'telemetry': {
+            'install_id': 'old-id',
+            'enabled': True,
+            'submit_url': 'https://example.invalid/submit',
+            'leaderboard_url': 'https://example.invalid/leaderboard',
+            'interval_s': 120,
+            'consented': True,
+        }})
+        self.assertEqual(cfg['telemetry'], {
+            'consented': True, 'rating_prompted': False})
 
     def test_consent_flags_coerced(self):
         cfg = config.validate({'telemetry': {'enabled': 1, 'consented': 1}})
-        self.assertIs(cfg['telemetry']['enabled'], True)
         self.assertIs(cfg['telemetry']['consented'], True)
 
 

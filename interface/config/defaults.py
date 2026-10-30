@@ -77,32 +77,13 @@ HOTKEY_TOKENS = (
     'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
 )
 
-# -- Fish-Event-Fenster + Telemetrie (Run 1) --------------------------------
+# -- Fish-Event-Fenster (Run 1) ---------------------------------------------
 # Wochentage 0..6 (Montag=0 .. Sonntag=6, wie datetime.weekday()).
 WEEKDAYS = (0, 1, 2, 3, 4, 5, 6)
 # "Warnung N Minuten vor Ende" -- 0 = aus, max 24h.
 EVENT_WARN_MIN_MAX = 1440
-# Telemetrie-Sendeintervall (Sekunden): nicht zu aggressiv (Server-Last) und
-# nicht laenger als ~1h. Default 120s (Spec).
-TELEMETRY_INTERVAL_MIN = 30
-TELEMETRY_INTERVAL_MAX = 3600
-TELEMETRY_INTERVAL_DEFAULT = 120
-# Laengenkappen (defensiv -- ein kaputtes Feld darf nichts Riesiges erzeugen).
+# Laengenkappe fuer den lokalen Anzeigenamen.
 USERNAME_MAXLEN = 32
-URL_MAXLEN = 300
-# Random install-id (uuid4 hex = 32 Zeichen; str-Form 36) -- defensiv gekappt.
-# Mirrort telemetry.hwid.INSTALL_ID_MAXLEN + server HWID_MAXLEN.
-INSTALL_ID_MAXLEN = 64
-# Plausibilitaets-Obergrenzen fuer die Statistik (nur zur Konsistenz; der Server
-# validiert hart -- hier nur, damit die UI/der Sender nichts Absurdes anzeigt).
-STATS_MAX_COUNT = 100_000_000        # 100 Mio Faenge/Puzzles
-STATS_MAX_RUNTIME_S = 100_000_000.0  # ~3 Jahre Laufzeit in Sekunden
-
-# Live-Telemetrie-Endpoint (eigene Subdomain auf dem netcup-Server, isolierter
-# Container hinter kilab-nginx + Let's-Encrypt). Der anonyme Zaehler sendet erst,
-# wenn eine echte URL gesetzt ist (hier immer der Fall).
-DEFAULT_SUBMIT_URL = 'https://telemetry.musketier.net/submit'
-DEFAULT_LEADERBOARD_URL = 'https://telemetry.musketier.net/leaderboard'
 
 # Stabile Position: NEBEN der EXE (frozen/Portable) bzw. 'config.json' im CWD
 # (Dev/Test). Der frueher nackte CWD-Pfad liess die Portable-EXE bei jedem Start
@@ -283,22 +264,9 @@ DEFAULTS = {
     # Wird NICHT in to_values gereicht -- die Telemetrie liest ihn direkt aus der
     # Config.
     'username': '',
-    # Ranking-Telemetrie: ANONYMER, IMMER-AN Zaehler (keine Opt-out-Wahl mehr).
-    #   * install_id: zufaellige uuid4, EINMAL beim ersten Lauf erzeugt + hier
-    #     gespeichert (leer = noch nicht erzeugt; wird beim ersten Senden lazy
-    #     gefuellt). KEINE Hardware-/Geraete-Ableitung.
-    #   * enabled: VESTIGIAL (Rueckwaerts-Kompat alter config.json) -- default
-    #     True, wird NICHT mehr als Opt-out-Gate gelesen. Das echte "senden wir?"
-    #     ist: install_id + submit_url vorhanden UND nicht blockiert.
-    #   * consented: merkt, dass das Onboarding entschieden wurde -> Dialog nur
-    #     EINMAL.
+    # consented merkt, dass das lokale Onboarding entschieden wurde.
     'telemetry': {
-        'install_id': '',
-        'enabled': True,
         'consented': False,
-        'submit_url': DEFAULT_SUBMIT_URL,
-        'leaderboard_url': DEFAULT_LEADERBOARD_URL,
-        'interval_s': TELEMETRY_INTERVAL_DEFAULT,
         # One-shot: the "rate this on GitHub" prompt is shown ONCE after the
         # 10th solved puzzle; this flag (set then) keeps it from re-appearing.
         'rating_prompted': False,
@@ -349,10 +317,7 @@ __all__ = [
     'DELAY_MIN', 'DELAY_MAX', 'OVERLAY_OPACITY_MIN', 'OVERLAY_OPACITY_MAX',
     'PUZZLE_DELAY_MIN', 'PUZZLE_DELAY_MAX',
     'HOTKEY_TOKENS', 'WEEKDAYS', 'EVENT_WARN_MIN_MAX',
-    'TELEMETRY_INTERVAL_MIN', 'TELEMETRY_INTERVAL_MAX',
-    'TELEMETRY_INTERVAL_DEFAULT', 'USERNAME_MAXLEN', 'URL_MAXLEN',
-    'INSTALL_ID_MAXLEN',
-    'STATS_MAX_COUNT', 'STATS_MAX_RUNTIME_S',
-    'DEFAULT_SUBMIT_URL', 'DEFAULT_LEADERBOARD_URL', 'DEFAULT_CONFIG_PATH',
+    'USERNAME_MAXLEN',
+    'DEFAULT_CONFIG_PATH',
     'DEFAULTS',
 ]
