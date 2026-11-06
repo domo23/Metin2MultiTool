@@ -245,6 +245,50 @@ class TestDirectBackendTagPassthrough(unittest.TestCase):
         fake.click.assert_called_once_with(x=5, y=6)
 
 
+class _PauseRecordingPdi:
+    def __init__(self, fail=False):
+        self.PAUSE = 0.1
+        self.pause_during_click = None
+        self.fail = fail
+
+    def click(self, **kwargs):
+        self.pause_during_click = self.PAUSE
+        if self.fail:
+            raise RuntimeError('input failure')
+
+    def keyDown(self, key):
+        self.pause_during_key = self.PAUSE
+
+    def keyUp(self, key):
+        self.pause_during_key_up = self.PAUSE
+
+
+class TestMouseClickPause(unittest.TestCase):
+    def _run_click(self, fake):
+        import fishingbot
+        with mock.patch.object(fishingbot, 'pydirectinput', fake), \
+                mock.patch.object(fishingbot, 'click_tracker', None):
+            fishingbot._DirectBackend().click(5, 6, tag='minigame')
+
+    def test_mouse_click_uses_short_pause_and_restores_keyboard_pause(self):
+        import fishingbot
+        fake = _PauseRecordingPdi()
+        self._run_click(fake)
+        self.assertEqual(fake.pause_during_click,
+                         fishingbot.FISHING_MOUSE_CLICK_PAUSE_S)
+        self.assertEqual(fake.PAUSE, 0.1)
+        with mock.patch.object(fishingbot, 'pydirectinput', fake):
+            fishingbot._DirectBackend().key('1')
+        self.assertEqual(fake.pause_during_key, 0.1)
+        self.assertEqual(fake.pause_during_key_up, 0.1)
+
+    def test_mouse_click_restores_pause_when_backend_raises(self):
+        fake = _PauseRecordingPdi(fail=True)
+        with self.assertRaises(RuntimeError):
+            self._run_click(fake)
+        self.assertEqual(fake.PAUSE, 0.1)
+
+
 class _FakeInput:
     """Protokolliert Input-Aufrufe (wie in test_cursor_client)."""
 

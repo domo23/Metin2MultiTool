@@ -14,11 +14,13 @@ class FakeInput:
     def __init__(self):
         self.log = []
         self.PAUSE = None
+        self.pause_during_click = None
 
     def moveTo(self, x, y):
         self.log.append(('moveTo', x, y))
 
     def click(self, button='left'):
+        self.pause_during_click = self.PAUSE
         self.log.append(('click', button))
 
     def mouseDown(self, button='left'):
@@ -85,6 +87,7 @@ class TestBurstHappyPath(unittest.TestCase):
         ])
         self.assertEqual(acq, [(0, False)])               # Lease genommen
         self.assertEqual(rel, [0])                        # und freigegeben
+        self.assertEqual(inp.pause_during_click, cc.MOUSE_CLICK_PAUSE_S)
         self.assertEqual(inp.PAUSE, 0.15)                 # G2 nur in der Lease
 
     def test_drag_marks_holds_button_and_releases_button(self):

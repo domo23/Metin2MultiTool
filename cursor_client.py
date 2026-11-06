@@ -30,6 +30,26 @@ class BurstAborted(Exception):
 
 DEFAULT_SETTLE_S = 0.06
 DEFAULT_ACTIVATE_RETRIES = 3
+MOUSE_CLICK_PAUSE_S = 0.02  # Keep in sync with fishingbot.FISHING_MOUSE_CLICK_PAUSE_S.
+
+try:
+    import time
+except Exception:  # pragma: no cover
+    time = None
+
+try:
+    from debuglog import log as _debuglog
+except Exception:  # pragma: no cover
+    _debuglog = None
+
+
+def _trace_cursor_action(label, **fields):
+    try:
+        if _debuglog is None:
+            return
+        _debuglog.event(0, 'CURSOR ' + label, **fields)
+    except Exception:
+        pass
 
 
 class CursorClient:
@@ -79,13 +99,29 @@ class CursorClient:
             click_tracker.record_click(button, sx, sy, tag=tag)
         except Exception:
             pass
-        self._run([lambda: self._inp.moveTo(sx, sy),
-                   lambda: self._inp.click(button=button)])
+        started = time.perf_counter() if time is not None else None
+        _trace_cursor_action('click-dispatch', cx=cx, cy=cy, sx=sx, sy=sy,
+                             button=button, tag=tag)
+        try:
+            self._run([lambda: self._inp.moveTo(sx, sy),
+                       lambda: self._inp.click(button=button)],
+                      pause_override=MOUSE_CLICK_PAUSE_S)
+        finally:
+            if started is not None:
+                elapsed_ms = (time.perf_counter() - started) * 1000.0
+                _trace_cursor_action('click-finished', cx=cx, cy=cy, sx=sx, sy=sy,
+                                     button=button, tag=tag,
+                                     elapsed_ms=round(elapsed_ms, 1))
+                if elapsed_ms > 80.0 and _debuglog is not None:
+                    _debuglog.warning(
+                        'INPUT_STALL | cursor click took %.1f ms for %s/%s' % (
+                            elapsed_ms, button, tag))
 
     def right_click(self, cx, cy):
         sx, sy = self._to_screen(cx, cy)
         self._run([lambda: self._inp.moveTo(sx, sy),
-                   lambda: self._inp.click(button='right')])
+                   lambda: self._inp.click(button='right')],
+                  pause_override=MOUSE_CLICK_PAUSE_S)
 
     def key(self, key, hold_s=0.0):
         def _press():
@@ -123,7 +159,7 @@ class CursorClient:
         self._run(actions, holds_button=True)
 
     # -- Kern: die gehaertete Burst-Sequenz --------------------------------
-    def _run(self, actions, holds_button=False):
+    def _run(self, actions, holds_button=False, pause_override=None):
         try:
             self._acquire(self.idx, holds_button)
         except Exception:
@@ -138,7 +174,18 @@ class CursorClient:
             except Exception:
                 pass
             raise
+        restore_pause = None
+        restore_pause_known = False
         try:
+            previous_pause = getattr(self._inp, 'PAUSE', None)
+            restore_pause_known = hasattr(self._inp, 'PAUSE')
+            restore_pause = (self.mouse_pause if self.mouse_pause
+                            else previous_pause)
+            if pause_override is not None:
+                try:
+                    self._inp.PAUSE = pause_override
+                except Exception:
+                    pass
             # (Finding #1) globalen Button-State neutralisieren, BEVOR irgendetwas
             # passiert -- ein vorheriger (zwangsentzogener) Holder koennte eine
             # Taste gedrueckt gelassen haben.
@@ -147,9 +194,9 @@ class CursorClient:
             # Single-Client: das Spiel ist fokussiert -> direkt klicken (legacy).
             if self.needs_activation:
                 self._activate_with_gate()
-            if self.mouse_pause:
+            if pause_override is None and self.mouse_pause:
                 try:
-                    self._inp.PAUSE = self.mouse_pause      # G2: nur in der Lease
+                    self._inp.PAUSE = self.mouse_pause      # G2: only in the lease
                 except Exception:
                     pass
             for act in actions:
@@ -159,6 +206,11 @@ class CursorClient:
         finally:
             # (Finding #1) Tasten IMMER loesen -- auch bei Focus-Fail/Stop/Crash.
             self._neutralize_buttons()
+            if pause_override is not None and restore_pause_known:
+                try:
+                    self._inp.PAUSE = restore_pause
+                except Exception:
+                    pass
             self._release(self.idx)
 
     def _activate_with_gate(self):

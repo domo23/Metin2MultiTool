@@ -1,14 +1,14 @@
-"""Reine Bilderkennung des Angel-Minispiels als Mixin (kein eigener Zustand).
+"""Pure image recognition of the fishing mini-game as a mixin (no own state).
 
-Beherbergt die drei Erkennungs-Methoden des FishingBot, die ausschliesslich aus
-dem Capture lesen (Fisch-Position, Uhr/Minispiel, Tagesbelohnung) und dabei nur
-auf bereits in :class:`fishingbot.FishingBot` definierte Klassen-/Instanz-Attribute
-(``needle_img``, ``FISH_RANGE``, ``fish_pos_x`` ...) zugreifen.
+Contains the three detection methods of the FishingBot, which read exclusively from
+the capture (fish position, clock/minigame, daily reward) and only access
+class/instance attributes already defined in :class:`fishingbot.FishingBot`
+(``needle_img``, ``FISH_RANGE``, ``fish_pos_x`` ...).
 
-Als Mixin herausgezogen, damit der zustandsbehaftete Cast-/State-Machine-Teil in
-:mod:`fishingbot` schlank bleibt. ``FishingBot`` erbt von
-:class:`FishingDetectMixin`; die Methodenaufloesung (``self.detect`` etc.) und
-jeder ``self.``-Zugriff bleiben damit byte-identisch zur fruheren Single-Class.
+Extracted as a mixin so the stateful cast/state-machine part in :mod:`fishingbot`
+remains lightweight. ``FishingBot`` inherits from
+:class:`FishingDetectMixin`; method resolution (``self.detect`` etc.) and every
+``self.`` access therefore remain byte-identical to the earlier single-class version.
 """
 
 import math
@@ -17,124 +17,108 @@ from time import time
 
 try:
     import numpy as np
-except Exception:  # pragma: no cover - numpy kommt mit cv2; reiner Fallback
+except Exception:  # pragma: no cover - numpy is bundled with cv2; pure fallback
     np = None
 
 from fishing_match import _match_template_max
 from respath import resource_path
 
 
-# -- Goldener-Thunfisch BESTAETIGUNGS-Dialog (nach dem Options-Klick) --------
+# -- Golden tuna confirmation dialog (after the option click) ------------------
 #
-# Nach dem Klick auf eine der drei Optionen (Freilassen/Aufschneiden/Koeder)
-# antwortet der SERVER mit einem zweiten Fenster mit EINEM OK-Knopf (z.B. die
-# Freilassen-Bonus-Meldung). Zwei harte Live-Befunde bestimmen das Design:
-#   1. Das Fenster schwaerzt die Bildecken NICHT (max 125 statt 0) ->
-#      detect_daily_reward sieht es nie; es braucht eine EIGENE Erkennung.
-#   2. Das Fenster steht NICHT an fester Position: seine Hoehe haengt vom
-#      Meldungstext ab und die Lage variiert (Live-Referenzen: OK-Mitte
-#      (403,250) vs. (403,202) client). Fixe Koordinaten (v1.1.5) verfehlten
-#      die zweite Variante -> der OK-Knopf wird jetzt per Template ueber den
-#      GANZEN Frame GESUCHT (wie die Lagerfeuer-Label-Suche) und der Klick
-#      geht auf den FUND, nicht auf eine Konstante.
+# After clicking one of the three options (release/split/bait), the SERVER opens
+# a second window with a single OK button (for example, the release bonus dialog).
+# Two hard live findings determine the design:
+#   1. The window does NOT black out the image corners (max 125 instead of 0) ->
+#      detect_daily_reward never sees it; it needs its own detection.
+#   2. The window is NOT at a fixed position: its height depends on the message
+#      text and its placement varies (live references: OK center (403,250) vs.
+#      (403,202) client). Fixed coordinates (v1.1.5) missed the second variant ->
+#      the OK button is now searched across the entire frame by template (like the
+#      campfire label search), and the click goes to the FOUND location instead of a constant.
 #
-# Erkennung = zwei Faktoren:
-#   * Graustufen-NCC des OK-Knopf-Templates (images/golden_ok_knob.png,
-#     20x32): Positives 0.81/1.00, staerkster Negativfall 0.61 -> Schwelle
-#     0.70 mit Marge in beide Richtungen. Laeuft ohnehin nur im 10s-Fenster
-#     nach dem Options-Klick.
-#   * Leisten-Check: der Knopf sitzt auf einer breiten, FLACHEN Grau-Leiste;
-#     beide Flanken (links/rechts vom Fund) muessen flach sein (std <= 12)
-#     und duerfen weder schwarzes Loch noch ausgebrannte Flaeche sein.
+# Detection = two factors:
+#   * Grayscale NCC of the OK button template (images/golden_ok_knob.png,
+#     20x32): positive 0.81/1.00, strongest negative case 0.61 -> threshold
+#     0.70 with margin on both sides. It only runs within the 10s window after the option click.
+#   * Bar check: the button sits on a broad, FLAT gray bar; both flanks (left/right of the match)
+#     must be flat (std <= 12) and must not contain either a black hole or a burned-out area.
 #
-# HELLIGKEITS-FENSTER BEWUSST WEIT (v1.6.12, 2026-08-18). Es stand auf
-# 50..110 -- kalibriert an den drei Referenzen (gemessen 65,7 / 79,3 / 84,7).
-# Das ist genau der Fehler, den dieses Projekt schon einmal teuer bezahlt hat:
-# eine Schwelle an Stichproben statt an der Sache. Die Leiste ist
-# HALBTRANSPARENT, ihre Helligkeit folgt also der Szene DAHINTER; an einer
-# helleren Angelstelle waeren die 110 gerissen und der OK-Knopf waere -- bei
-# perfekter Erkennung des Knopfes selbst -- ohne Klick geblieben. Genau die
-# Beschwerde des Testers ("drueckt nicht mehr drauf"). Die eigentliche
-# Unterscheidung leistet ohnehin die NCC-Schwelle (Positive 0,80/0,81/1,00
-# gegen staerkstes Negativ 0,57 ueber alle 30 Referenzbilder) plus die
-# Flachheit (Positive std <= 3,3 gegen Negative >= 8,7). Das Fenster soll nur
-# noch "schwarzes Nichts" und "ausgebrannt weiss" ausschliessen.
+# BRIGHTNESS WINDOW INTENTIONALLY WIDE (v1.6.12, 2026-08-18). It was 50..110 --
+# calibrated on the three references (measured 65.7 / 79.3 / 84.7). This is exactly
+# the mistake this project has paid for before: a threshold based on samples instead of the actual object.
+# The bar is SEMI-TRANSPARENT, so its brightness follows the scene BEHIND it; on a brighter fishing spot,
+# the 110 would have been exceeded and the OK button would have remained unclickable even with perfect
+# detection of the button itself. That is exactly the complaint from the tester ("no longer clicks").
+# The actual distinction is still provided by the NCC threshold (positive 0.80/0.81/1.00 against strongest
+# negative 0.57 across all 30 reference images) plus the flatness (positive std <= 3.3 against negatives >= 8.7).
+# The window should only exclude "black nothing" and "burned-out white".
 GOLDEN_OK_TEMPLATE = 'images/golden_ok_knob.png'
 GOLDEN_OK_NCC_MIN = 0.70
 GOLDEN_OK_BAR_MEAN = (20.0, 200.0)
 GOLDEN_OK_BAR_STD_MAX = 12.0
 
-# -- Zweiter Pfad: die ENDEN der OK-Leiste (v1.6.13, User-Log 2026-09-02) ----
+# -- Second path: the ENDS of the OK bar (v1.6.13, User log 2026-09-02) ---------
 #
-# Der Fall aus dem Log: Options-Klick 13:25:46, danach in 10 s KEIN OK-Klick,
-# obwohl der Dialog stand. Am Screenshot gemessen: der OK-Knopf selbst kommt nur
-# auf 0,68 -- unter der Schwelle -- weil der GILDENNAME der eigenen Figur in Pink
-# quer ueber dem "OK" steht. Die Figur steht mittig im Bild, der Dialog ist
-# halbtransparent, und der Client zeichnet Namensschilder UEBER den Dialog.
-# Ob das passiert, haengt von Kamera und Standort ab -- genau das Muster "mal
-# geht es, mal nicht".
+# The case from the log: option click 13:25:46, then no OK click within 10 s even though the dialog was present.
+# In the screenshot, the OK button itself only reaches 0.68 -- below threshold -- because the GUILD NAME of the
+# player's character in pink stretches across the "OK". The character stands in the middle of the image,
+# the dialog is semi-transparent, and the client draws name tags OVER the dialog. Whether this happens depends
+# on the camera and the location -- exactly the pattern of "sometimes it works, sometimes it doesn't".
 #
-# Was ein Namensschild NICHT erreicht, sind die ENDEN der Leiste: sie ist
-# 280 px breit (Client x 260..539), Schilder sind ~150 px und haengen mittig an
-# der Figur. Der Dialog-Rahmen steht ausserdem FEST (Client x 49..748, y ab 149;
-# alle fuenf Referenzen identisch) -- nur die Leiste wandert in y mit der
-# Textlaenge. Darum werden beide Enden per Template in SCHMALEN Spalten an
-# fester x-Lage gesucht; ein Treffer braucht BEIDE Enden auf gleicher Hoehe.
+# What a name tag does NOT reach are the ENDS of the bar: it is 280 px wide (client x 260..539), tags are ~150 px
+# and hang centered on the character. The dialog frame also stands FIXED (client x 49..748, y from 149 onward;
+# all five references identical) -- only the bar moves in y with the text length. For that reason, both ends are
+# searched with templates in NARROW columns at fixed x positions; a hit requires BOTH ends at the same height.
 #
-# GEMESSEN (fuenf Dialoge, 25 Negative): schwaechstes Positiv 0,775 (beide
-# Enden, |dy| <= 4), staerkstes Negativ 0,598 bei |dy| = 13 -- zwei getrennte
-# Luecken. Kosten 0,15 ms je Frame gegen 4,7 ms der Vollbild-Suche. Helligkeit
-# der Szene (+45, x1,5, -35) aendert die Werte um < 0,003.
+# MEASURED (five dialogs, 25 negatives): weakest positive 0.775 (both ends, |dy| <= 4), strongest negative 0.598 at |dy| = 13 -- two separate gaps.
+# Cost 0.15 ms per frame versus 4.7 ms for full-frame search. Scene brightness (+45, x1.5, -35) changes values by < 0.003.
 #
-# Der Knopf-Pfad bleibt als Rueckfall bestehen, jetzt auf den Mittelstreifen
-# des festen Dialogs begrenzt (der Knopf sitzt in allen Referenzen bei x 403).
+# The button path remains as a fallback, now restricted to the central strip of the fixed dialog
+# (the button sits at x 403 in all references).
 GOLDEN_OK_END_LEFT_TEMPLATE = 'images/golden_ok_end_left.png'
 GOLDEN_OK_END_RIGHT_TEMPLATE = 'images/golden_ok_end_right.png'
-GOLDEN_BAR_LEFT_X = 260       # Client-x des linken Leistenanfangs
-GOLDEN_BAR_RIGHT_X = 539      # Client-x des rechten Leistenendes
-GOLDEN_BAR_END_ANCHOR = (6, 17)   # Spalte im Template, die auf LEFT_X/RIGHT_X liegt
-GOLDEN_BAR_END_DX = 8         # Suchspielraum in x je Seite (px)
+GOLDEN_BAR_LEFT_X = 260       # Client x of the left bar start
+GOLDEN_BAR_RIGHT_X = 539      # Client x of the right bar end
+GOLDEN_BAR_END_ANCHOR = (6, 17)   # Column in the template that must align with LEFT_X/RIGHT_X
+GOLDEN_BAR_END_DX = 8         # Search range in x per side (px)
 GOLDEN_BAR_END_NCC_MIN = 0.70
-GOLDEN_BAR_END_DY_MAX = 6     # beide Enden auf (fast) gleicher Hoehe
-GOLDEN_PANEL_Y = (160, 445)   # y-Bereich des festen Dialog-Rahmens (Client)
-GOLDEN_OK_X = 403             # Client-x der Knopf-Mitte (alle Referenzen)
-GOLDEN_OK_X_HALF = 73         # halbe Breite des Mittelstreifens fuer den Knopf
+GOLDEN_BAR_END_DY_MAX = 6     # both ends at (almost) the same height
+GOLDEN_PANEL_Y = (160, 445)   # y-range of the fixed dialog frame (client)
+GOLDEN_OK_X = 403             # Client x of the button center (all references)
+GOLDEN_OK_X_HALF = 73         # half-width of the middle strip for the button
 
-# -- Dritter Pfad: FESTE GEOMETRIE (v1.6.13, auf Wunsch des Nutzers) ----------
+# -- Third path: FIXED GEOMETRY (v1.6.13, at the user's request) -------------
 #
-# "Wenn die Bilder nicht gut erkennbar sind, mach die festen Koordinaten
-# besser." Der Dialog-Rahmen steht fest, also laesst sich der Knopf auch OHNE
-# Template finden: (1) der Rahmen ist da -- eine helle senkrechte Linie bei
-# Client-x 49..53 und eine helle waagerechte bei y 149..153; (2) die OK-Leiste
-# ist die hellste FLACHE Zeile in den beiden Spalten links und rechts der Mitte
-# (x 270..340 und 460..530), wo nie ein Namensschild haengt. Geklickt wird
-# (400, y) -- die Leiste ist 280 px breit, jeder Punkt darauf ist der Knopf.
+# "If the images are not recognizable enough, make the fixed coordinates better."
+# The dialog frame is fixed, so the button can also be found WITHOUT a template:
+# (1) the frame is there -- a bright vertical line at client x 49..53 and a bright horizontal line at y 149..153;
+# (2) the OK bar is the brightest FLAT row in the two columns left and right of the center
+# (x 270..340 and 460..530), where a name tag never hangs. The click lands at (400, y) --
+# the bar is 280 px wide, and every point on it is the button.
 #
-# WARUM NICHT BLIND: ohne den Rahmen-Check traefe ein fester Klick die Welt,
-# solange die Server-Antwort noch nicht da ist -- die Figur liefe los (Report
-# 2026-07-22). Der Rahmen ist die billigste harte Evidenz dafuer, dass ein
-# Dialog wirklich steht.
+# WHY NOT BLIND: without the frame check, a fixed click would hit the world while the server response
+# was not yet there -- the character would run away (report 2026-07-22). The frame is the cheapest hard
+# evidence that a dialog is really present.
 #
-# GEMESSEN (fuenf Dialoge, 25 Negative): Rahmen-Kontrast links 41,6..55,1 /
-# oben 37,1..55,5 gegen hoechstens 1,6 / 2,7 ohne Dialog. Leiste: Kontrast
-# 19,7..41,9 bei std <= 9,7; ohne Dialog entweder texturiert (std >= 49) oder
-# kontrastarm (<= 8,9). Das Optionsfenster traegt denselben Rahmen -- es wird
-# davor ueber die schwarze Ecke (detect_daily_reward) behandelt.
-GOLDEN_FRAME_LEFT_X = (47, 56)       # Suchbereich der linken Rahmenlinie
-GOLDEN_FRAME_TOP_Y = (147, 156)      # Suchbereich der oberen Rahmenlinie
-GOLDEN_FRAME_MIN = 15.0              # Mindest-Kontrast je Rahmenlinie
-GOLDEN_BAND_COLS = ((270, 340), (460, 530))   # schildfreie Spalten
-GOLDEN_BAND_Y = (175, 425)           # y-Suchbereich der Leistenmitte
+# MEASURED (five dialogs, 25 negatives): frame contrast left 41.6..55.1 / top 37.1..55.5 against at most 1.6 / 2.7 without a dialog.
+# Bar: contrast 19.7..41.9 with std <= 9.7; without a dialog it is either textured (std >= 49) or low-contrast (<= 8.9).
+# The options window carries the same frame -- it is handled before that via the black corner (detect_daily_reward).
+GOLDEN_FRAME_LEFT_X = (47, 56)       # Search area of the left frame line
+GOLDEN_FRAME_TOP_Y = (147, 156)      # Search area of the upper frame line
+GOLDEN_FRAME_MIN = 15.0              # Minimum contrast per frame line
+GOLDEN_BAND_COLS = ((270, 340), (460, 530))   # name-tag-free columns
+GOLDEN_BAND_Y = (175, 425)           # y search range of the bar center
 GOLDEN_BAND_MIN_CONTRAST = 12.0
 GOLDEN_BAND_MAX_STD = 14.0
-GOLDEN_BAR_CENTER_X = 400            # Klick-x auf der Leiste
+GOLDEN_BAR_CENTER_X = 400            # Click-x on the bar
 
 _golden_ok_cache = None
 _golden_end_cache = None
 
 
 def _golden_ok_template():
-    """Das OK-Knopf-Template als Graustufen-Array (gecacht, soft). None = aus."""
+    """The OK button template as a grayscale array (cached, soft). None = off."""
     global _golden_ok_cache
     if _golden_ok_cache is not None:
         return _golden_ok_cache
@@ -148,7 +132,7 @@ def _golden_ok_template():
 
 
 def _golden_end_templates():
-    """Die beiden Enden-Templates als Graustufen (gecacht, soft). None = aus."""
+    """The two end templates as grayscale (cached, soft). None = off."""
     global _golden_end_cache
     if _golden_end_cache is not None:
         return _golden_end_cache
@@ -165,11 +149,11 @@ def _golden_end_templates():
 
 
 def _match_end(gray, tmpl, anchor_x, anchor_col):
-    """Ein Leistenende in seiner schmalen Spalte suchen -> ``(score, y_mitte)``.
+    """Search one bar end in its narrow column -> ``(score, y_center)``.
 
-    ``anchor_x`` ist die Client-Spalte, auf der ``anchor_col`` des Templates
-    liegen muss; gesucht wird +-GOLDEN_BAR_END_DX in x und ueber den ganzen
-    Dialog-Rahmen in y. ``(0.0, None)`` wenn der Ausschnitt nicht ins Bild passt.
+    ``anchor_x`` is the client column on which ``anchor_col`` of the template must
+    lie; the search spans +-GOLDEN_BAR_END_DX in x and the full dialog frame in y.
+    ``(0.0, None)`` when the crop does not fit in the image.
     """
     th, tw = tmpl.shape[0], tmpl.shape[1]
     x0 = anchor_x - anchor_col - GOLDEN_BAR_END_DX
@@ -186,12 +170,12 @@ def _match_end(gray, tmpl, anchor_x, anchor_col):
 
 
 def golden_bar_ends_find(gray):
-    """Beide Enden der OK-Leiste -> ``(found, score, point, detail)``.
+    """Both ends of the OK bar -> ``(found, score, point, detail)``.
 
-    ``score`` ist das SCHWAECHERE der beiden Enden (beide muessen tragen),
-    ``point`` die Klick-Mitte ``(GOLDEN_OK_X, y)`` in Client-Koordinaten,
-    ``detail`` ein Dict mit ``links``/``rechts``/``dy`` fuer die Diagnose.
-    Rein, wirft nie; fehlende Templates -> ``(False, 0.0, None, {})``.
+    ``score`` is the weaker of the two ends (both must contribute), ``point`` is the
+    click center ``(GOLDEN_OK_X, y)`` in client coordinates, and ``detail`` is a dict
+    with ``links``/``rechts``/``dy`` for diagnostics.
+    Pure, never throws; missing templates -> ``(False, 0.0, None, {})``.
     """
     tm = _golden_end_templates()
     if tm is None or gray is None:
@@ -214,11 +198,11 @@ def golden_bar_ends_find(gray):
 
 
 def golden_panel_frame(gray):
-    """Kontrast der beiden festen Rahmenlinien -> ``(links, oben)``.
+    """Contrast of the two fixed frame lines -> ``(left, top)``.
 
-    Jede Linie: hellste Spalte/Zeile im Suchbereich, gemessen gegen den Mittel-
-    wert vier Pixel davor und dahinter. Ohne Dialog liegen beide nahe 0.
-    Wirft nie -> ``(0.0, 0.0)`` im Zweifel.
+    Each line: brightest column/row in the search area, measured against the mean of
+    four pixels before and after it. Without a dialog, both are near 0.
+    Never throws -> ``(0.0, 0.0)`` if in doubt.
     """
     try:
         y0, y1 = GOLDEN_PANEL_Y
@@ -239,11 +223,11 @@ def golden_panel_frame(gray):
 
 
 def golden_bar_band_find(gray):
-    """Die OK-Leiste als hellste FLACHE Zeile in den schildfreien Spalten.
+    """The OK bar as the brightest FLAT row in the name-tag-free columns.
 
-    :return: ``(y, kontrast, std)`` der besten Zeile -- der Aufrufer prueft
-        gegen GOLDEN_BAND_MIN_CONTRAST / GOLDEN_BAND_MAX_STD. Wirft nie ->
-        ``(None, 0.0, 999.0)`` im Zweifel.
+    :return: ``(y, contrast, std)`` of the best row -- the caller checks it against
+        GOLDEN_BAND_MIN_CONTRAST / GOLDEN_BAND_MAX_STD. Never throws ->
+        ``(None, 0.0, 999.0)`` if in doubt.
     """
     try:
         y0, y1 = GOLDEN_BAND_Y
@@ -252,8 +236,8 @@ def golden_bar_band_find(gray):
         g = gray.astype('float32')
         cols = [g[:, a:b] for a, b in GOLDEN_BAND_COLS]
         prof = sum(c.mean(axis=1) for c in cols) / len(cols)
-        # Fenstermittel per Praefixsumme: band = 19 Zeilen um y, umfeld = je 18
-        # Zeilen darueber (y-30..y-13) und darunter (y+13..y+30).
+        # Windowed mean using prefix sums: band = 19 rows around y, background =
+        # 18 rows above (y-30..y-13) and below (y+13..y+30).
         csum = np.concatenate(([0.0], np.cumsum(prof, dtype='float64')))
 
         def fenster(a_off, b_off):
@@ -272,18 +256,17 @@ def golden_bar_band_find(gray):
 
 
 def golden_fixed_geometry_find(gray):
-    """Pfad 3: Rahmen steht UND Leiste gefunden -> ``(found, score, point, detail)``.
+    """Path 3: frame present AND bar found -> ``(found, score, point, detail)``.
 
-    ``score`` ist der Leisten-Kontrast, ``point`` = (GOLDEN_BAR_CENTER_X, y).
+    ``score`` is the bar contrast, ``point`` = (GOLDEN_BAR_CENTER_X, y).
     """
     links, oben = golden_panel_frame(gray)
     detail = {'rahmen_links': round(links, 1), 'rahmen_oben': round(oben, 1)}
     if links < GOLDEN_FRAME_MIN or oben < GOLDEN_FRAME_MIN:
         return (False, 0.0, None, detail)
-    # Das OPTIONSFENSTER traegt denselben Rahmen und ebenfalls flache Balken --
-    # seine Kennung ist die schwarze Bildecke (wie detect_daily_reward). Es ist
-    # KEIN Bestaetigungs-Dialog; im Angel-Loop wird es vorher behandelt, aber
-    # diese Funktion muss es auch allein sauber ablehnen.
+    # The OPTIONS window has the same frame and also flat bars -- its signature is
+    # the black image corner (like detect_daily_reward). It is NOT a confirmation dialog;
+    # in the fishing loop it is handled earlier, but this function must reject it cleanly on its own.
     try:
         if not gray[10:15, 10:15].any():
             detail['optionsfenster'] = True
@@ -300,15 +283,14 @@ def golden_fixed_geometry_find(gray):
 
 
 def golden_confirm_find(image_bgr):
-    """Sucht den OK-Knopf des Bestaetigungs-Dialogs -- drei Pfade nacheinander.
+    """Search the OK button of the confirmation dialog -- three paths in sequence.
 
-    :return: ``(found, score, point)`` -- ``point`` ist die Knopf-MITTE in
-        Client-Koordinaten (der Klickpunkt), ``None`` wenn nicht gefunden.
-        ``score`` ist der NCC-Wert der Enden-Suche bzw. des Knopfs (der
-        Geometrie-Pfad hat keinen NCC; seine Werte liefert
-        :func:`golden_confirm_scores`). Rein, headless-testbar, wirft nie;
-        fehlende Templates/numpy oder ein zu kleiner Frame -> kein Klick (die
-        sichere Richtung).
+    :return: ``(found, score, point)`` -- ``point`` is the button center in client
+        coordinates (the click point), ``None`` if not found.
+        ``score`` is the NCC value of the end search or button match (the geometry
+        path has no NCC; its value is supplied by :func:`golden_confirm_scores`).
+        Pure, headless-testable, never throws; missing templates/numpy or too-small
+        frame -> no click (the safe direction).
     """
     if image_bgr is None or np is None:
         return (False, 0.0, None)
@@ -318,19 +300,19 @@ def golden_confirm_find(image_bgr):
             return (False, 0.0, None)
         gray = cv.cvtColor(img[:, :, :3], cv.COLOR_BGR2GRAY)
 
-        # PFAD 1 -- die Leisten-Enden (0,15 ms, unempfindlich gegen ein
-        # Namensschild ueber dem "OK"; siehe Konstanten-Doku).
+        # PATH 1 -- the bar ends (0.15 ms, insensitive to a name tag over "OK";
+        # see constant docs).
         found, score, point, _detail = golden_bar_ends_find(gray)
         if found:
             return (True, score, point)
 
-        # PFAD 2 -- feste Geometrie: Rahmen steht + hellste flache Zeile in den
-        # schildfreien Spalten (kein Template; siehe Konstanten-Doku).
+        # PATH 2 -- fixed geometry: frame present + brightest flat row in the
+        # name-tag-free columns (no template; see constant docs).
         found, _k, point, _detail = golden_fixed_geometry_find(gray)
         if found:
             return (True, score, point)
 
-        # PFAD 3 -- der Knopf selbst, im Mittelstreifen des festen Dialogs.
+        # PATH 3 -- the button itself, in the center strip of the fixed dialog.
         tmpl = _golden_ok_template()
         if tmpl is None:
             return (False, score, None)
@@ -346,7 +328,7 @@ def golden_confirm_find(image_bgr):
         if float(knob) < GOLDEN_OK_NCC_MIN:
             return (False, score, None)
         cx, cy = int(sx0 + loc[0] + tw // 2), int(loc[1] + th // 2)
-        # Leisten-Check: beide Flanken flach + plausibel hell.
+        # Bar check: both flanks flat + plausibly bright.
         for x0, x1 in ((cx - 48, cx - 24), (cx + 24, cx + 48)):
             y0, y1 = cy - 7, cy + 8
             if y0 < 0 or x0 < 0 or y1 > gray.shape[0] or x1 > gray.shape[1]:
@@ -363,12 +345,12 @@ def golden_confirm_find(image_bgr):
 
 
 def golden_confirm_scores(image_bgr):
-    """Alle Teil-Werte der Erkennung fuer EINE Diagnosezeile -> Dict.
+    """All partial values of the detection for one diagnostic line -> Dict.
 
-    ``knopf`` = bester NCC des OK-Knopfs im Mittelstreifen, ``links``/``rechts``
-    = die Enden, ``dy`` = ihr Hoehenversatz. Nur fuers Log, wenn ein erwarteter
-    Dialog NICHT gefunden wurde -- damit der naechste Report entscheidbar ist
-    ("nicht erkannt" gegen "geklickt, aber nicht angenommen"). Wirft nie.
+    ``knopf`` = best NCC of the OK button in the center strip, ``links``/``rechts`` =
+    the ends, ``dy`` = their vertical offset. Only for logging when an expected dialog
+    was NOT found -- so the next report can decide whether it was "not recognized"
+    versus "clicked but not accepted". Never throws.
     """
     out = {'knopf': None, 'links': None, 'rechts': None, 'dy': None,
            'rahmen_links': None, 'rahmen_oben': None}
@@ -393,24 +375,24 @@ def golden_confirm_scores(image_bgr):
 
 
 def golden_confirm_present(image_bgr):
-    """``True`` gdw. der Goldfisch-Bestaetigungs-Dialog im Frame steht."""
+    """``True`` iff the golden fish confirmation dialog is present in the frame."""
     return golden_confirm_find(image_bgr)[0]
 
 
 class FishingDetectMixin:
-    """Pure Erkennungs-Methoden (Fisch / Minispiel / Tagesbelohnung).
+    """Pure detection methods (fish / minigame / daily reward).
 
-    Enthaelt KEINE eigenen Attribute und KEIN ``__init__`` -- saemtlicher
-    Zustand (``needle_img``, ``FISH_RANGE``, ``fish_pos_x`` ...) lebt weiterhin
-    auf :class:`fishingbot.FishingBot`. Reines Verhalten, per MRO eingemischt.
+    Contains NO own attributes and NO ``__init__`` -- all state (``needle_img``,
+    ``FISH_RANGE``, ``fish_pos_x`` ...) continues to live on
+    :class:`fishingbot.FishingBot`. Pure behavior, mixed in via MRO.
     """
 
     def _note_detect(self, grund, conf=None, dist=None, velo=None,
                      ref_alter=None):
-        """Merkt sich, WARUM ``detect`` gerade so entschieden hat -- reine
-        Diagnose fuer die Klick-Zeile im Debug-Log, KEINE Verhaltensaenderung.
+        """Records WHY ``detect`` decided the way it did -- pure diagnostics for the
+        click line in the debug log, NO behavior change.
 
-        Wirft nie: schlaegt das Setzen fehl, fehlen im Log nur die Zusatzfelder.
+        Never throws: if writing fails, only the additional fields are missing from the log.
         """
         try:
             self._last_detect_info = {
@@ -422,11 +404,11 @@ class FishingDetectMixin:
 
     def detect(self, haystack_img):
 
-        # match the needle_image with the hasytack image (robust: ein abweichendes
-        # Capture darf KEINEN cv2-Crash ausloesen -> dann "kein Fisch" (None)).
+        # Match the needle_image with the haystack image (robust: a mismatched
+        # capture must NOT trigger a cv2 crash -> then "no fish" (None)).
         ok, max_val, max_loc = _match_template_max(haystack_img, self.needle_img)
         if not ok:
-            self._note_detect('vorlage-fehlt')
+            self._note_detect('template-missing')
             return None
 
         # needle_image's dimensions
@@ -456,48 +438,48 @@ class FishingDetectMixin:
                 velo = dist/(time() - self.fish_last_time)
 
                 if velo == 0.0:
-                    # Fund liegt EXAKT auf dem Bezugspunkt -> Ziel ruht.
-                    self._note_detect('ruht', conf=max_val, dist=dist,
+                    # The found spot lies EXACTLY on the reference point -> target rests.
+                    self._note_detect('resting', conf=max_val, dist=dist,
                                       velo=velo,
                                       ref_alter=time() - self.fish_last_time)
                     return (pos_x, pos_y, True)
                 elif velo >= 150:
 
-                    # With this velocity the fish position will be predict
+                    # With this velocity the fish position will be predicted.
 
                     pro = self.FISH_VELO_PREDICT / dist
                     destiny_x = int(pos_x + (pos_x - self.fish_pos_x) * pro)
                     destiny_y = int(pos_y + (pos_y - self.fish_pos_y) * pro)
 
-                    # Draw the predict line
+                    # Draw the prediction line
 
                     cv.line(haystack_img, (int(pos_x), int(pos_y)),
                             (destiny_x, destiny_y), (0, 255, 0),  thickness=3)
 
-                    # Vorhalt: es wird BEWUSST FISH_VELO_PREDICT px neben dem
-                    # Fund geklickt, in Richtung des Versatzes zum Bezugspunkt.
-                    self._note_detect('vorhalt', conf=max_val, dist=dist,
+                    # Lead: the click is deliberately placed FISH_VELO_PREDICT px beside the
+                    # match, in the direction of the offset from the reference point.
+                    self._note_detect('lead', conf=max_val, dist=dist,
                                       velo=velo,
                                       ref_alter=time() - self.fish_last_time)
                     return (destiny_x, destiny_y, False)
 
             # get the fish position and the time
 
-            hatte_bezug = bool(self.fish_last_time)
+            had_reference = bool(self.fish_last_time)
             self.fish_pos_x = pos_x
             self.fish_pos_y = pos_y
             self.fish_last_time = time()
-            # Fund da, aber kein Klick: entweder erster Fund dieser Runde oder
-            # Totbereich (0 < velo < 150). Bezugspunkt wurde nachgezogen.
-            self._note_detect('totbereich' if hatte_bezug else 'erster-fund',
+            # Fish found, but no click: either first find of this round or dead zone
+            # (0 < velo < 150). The reference point was updated.
+            self._note_detect('deadzone' if had_reference else 'first-fish',
                               conf=max_val)
             return None
 
-        self._note_detect('kein-fisch', conf=max_val)
+        self._note_detect('no-fish', conf=max_val)
         return None
 
     def detect_minigame(self, haystack_img):
-        # Robust gegen Form-/Typ-Abweichungen des Captures (kein Crash mehr).
+        # Robust against shape/type deviations of the capture (no more crash).
         ok, max_val, _ = _match_template_max(haystack_img, self.needle_img_clock)
         if ok and max_val > self._best_minigame_conf:
             self._best_minigame_conf = max_val
@@ -511,16 +493,16 @@ class FishingDetectMixin:
         return not image[10:15, 10:15, :3].any()
 
     def detect_golden_confirm(self, image):
-        """``(found, score, point)`` des Bestaetigungs-Dialog-OK-Knopfs.
+        """``(found, score, point)`` of the confirmation dialog's OK button.
 
-        Duenner Mixin-Wrapper um :func:`golden_confirm_find` (Modul-Funktion,
-        damit sie headless ohne FishingBot-Instanz testbar bleibt). ``point``
-        ist die GEFUNDENE Knopf-Mitte (Client) -- der Dialog steht nicht an
-        fester Position, geklickt wird der Fund; siehe Konstanten-Doku oben.
+        Thin mixin wrapper around :func:`golden_confirm_find` (module function so it
+        stays testable headless without a FishingBot instance). ``point`` is the FOUND
+        button center (client) -- the dialog is not at a fixed position, and the click
+        goes to the match; see the constant docs above.
         """
         return golden_confirm_find(image)
 
     def golden_confirm_diag(self, image):
-        """Teil-Werte der Erkennung fuer die Diagnosezeile (siehe
-        :func:`golden_confirm_scores`). Wirft nie."""
+        """Partial values of the detection used for the diagnostics line (see
+        :func:`golden_confirm_scores`). Never throws."""
         return golden_confirm_scores(image)

@@ -1,5 +1,5 @@
 import pydirectinput
-pydirectinput.PAUSE = 0.1  # KEYBOARD needs this hold to register in-game; 0.05 was too short for keys (fishing didn't cast). = pydirectinput default (what v1.1.0 used). Mouse-only flows (scan) lower it per-op to 0.05.
+pydirectinput.PAUSE = 0.1  # Keyboard hold required in-game; mouse clicks use a short per-click pause below.
 # Fail-Safe AUS: pydirectinput wirft sonst FailSafeException, sobald der Cursor
 # beim Klick auch nur EINMAL als (0,0) gelesen wird (transient bei Szenenwechsel/
 # Fokusverlust/Dialog) -> ein einziges solches Lesen killt die GANZE Session
@@ -9,7 +9,10 @@ pydirectinput.PAUSE = 0.1  # KEYBOARD needs this hold to register in-game; 0.05 
 # fuehrt. pydirectinput ist prozess-global -> hier gesetzt (fruehester Importeur
 # im Angel-Prozess) wirkt es modulweit fuer alle Klick-/Tastenpfade.
 pydirectinput.FAILSAFE = False
+import os
 import cv2 as cv
+from time import perf_counter
+from threading import RLock
 
 # DEBUG-Klick-Tracker (reines Diagnose-Logging; veraendert KEINEN Klick). Soft-
 # Import wie im restlichen Projekt: schlaegt er fehl, angelt der Bot unveraendert
@@ -18,6 +21,32 @@ try:
     import click_tracker
 except Exception:  # pragma: no cover
     click_tracker = None
+
+try:
+    from debuglog import log as _debuglog
+except Exception:  # pragma: no cover
+    _debuglog = None
+
+
+def _input_trace(event, **fields):
+    """Optionales Input-Debug-Logging mit aktivem Schalter.
+
+    ``M2FB_INPUT_TRACE=1`` activates these lines; logging must never break the
+    bot. The trace is intended for post-run analysis.
+    """
+    try:
+        if _debuglog is None:
+            return
+        if str(os.environ.get('M2FB_INPUT_TRACE', '')).strip().lower() not in (
+                '1', 'true', 'yes', 'on'):
+            return
+        _debuglog.event(0, 'INPUT ' + event, **fields)
+    except Exception:
+        pass
+
+
+FISHING_MOUSE_CLICK_PAUSE_S = 0.01
+_direct_input_lock = RLock()
 
 
 # -- Input-Backend (Multiclient-Naht, Build-Schritt 6) ---------------------
@@ -30,7 +59,8 @@ except Exception:  # pragma: no cover
 # damit kein anderer Client mitten in den Tastendruck graetscht (Atomizitaet).
 class _DirectBackend:
     def set_pause(self, value):
-        pydirectinput.PAUSE = value
+        with _direct_input_lock:
+            pydirectinput.PAUSE = value
 
     def click(self, x, y, button='left', tag='other'):
         # DEBUG-Tracking VOR dem physischen Klick: jeden Klick ms-genau + mit
@@ -38,16 +68,59 @@ class _DirectBackend:
         # Logging -- veraendert den Klick NICHT und wirft nie.
         if click_tracker is not None:
             click_tracker.record_click(button, x, y, tag=tag)
-        # Form-exakt: ohne button (= Default 'left') KEIN button-kwarg senden,
-        # damit bestehende Test-Assertions auf die Aufrufform unveraendert gelten.
-        if button == 'left':
-            pydirectinput.click(x=x, y=y)
-        else:
-            pydirectinput.click(x=x, y=y, button=button)
+        missing_pause = object()
+        previous_pause = missing_pause
+        pause_before = 0.0
+        started = None
+        try:
+            # PyDirectInput applies PAUSE after mouse movement/down/up as well
+            # as after click(), so the 100 ms keyboard setting adds up to ~200 ms.
+            # Keep a short hold so the game still registers the mouse click.
+            with _direct_input_lock:
+                previous_pause = getattr(pydirectinput, 'PAUSE', missing_pause)
+                try:
+                    pause_before = float(previous_pause or 0.0) \
+                        if previous_pause is not missing_pause else 0.0
+                except (TypeError, ValueError):
+                    pause_before = 0.0
+                _input_trace('click-dispatch', x=x, y=y, button=button, tag=tag,
+                             prior_pause_ms=round(pause_before * 1000.0, 1),
+                             click_pause_ms=FISHING_MOUSE_CLICK_PAUSE_S * 1000.0,
+                             calling='direct-backend')
+                try:
+                    pydirectinput.PAUSE = FISHING_MOUSE_CLICK_PAUSE_S
+                    # Form-exact: omit button for the default left click.
+                    started = perf_counter()
+                    if button == 'left':
+                        pydirectinput.click(x=x, y=y)
+                    else:
+                        pydirectinput.click(x=x, y=y, button=button)
+                finally:
+                    if previous_pause is not missing_pause:
+                        pydirectinput.PAUSE = previous_pause
+            elapsed_ms = (perf_counter() - started) * 1000.0
+            _input_trace('click-finished', x=x, y=y, button=button, tag=tag,
+                         elapsed_ms=round(elapsed_ms, 1),
+                         prior_pause_ms=round(pause_before * 1000.0, 1),
+                         click_pause_ms=FISHING_MOUSE_CLICK_PAUSE_S * 1000.0,
+                         stall_risk=(elapsed_ms > 80.0))
+            if elapsed_ms > 80.0:
+                _debuglog.warning(
+                    'INPUT_STALL | direct-click took %.1f ms; check pydirectinput PAUSE or Windows input queue' % elapsed_ms
+                ) if _debuglog is not None else None
+        except Exception:
+            elapsed_ms = (perf_counter() - started) * 1000.0 \
+                if started is not None else 0.0
+            _input_trace('click-exception', x=x, y=y, button=button, tag=tag,
+                         elapsed_ms=round(elapsed_ms, 1),
+                         prior_pause_ms=round(pause_before * 1000.0, 1),
+                         click_pause_ms=FISHING_MOUSE_CLICK_PAUSE_S * 1000.0)
+            raise
 
     def key(self, key):
-        pydirectinput.keyDown(key)
-        pydirectinput.keyUp(key)
+        with _direct_input_lock:
+            pydirectinput.keyDown(key)
+            pydirectinput.keyUp(key)
 
 
 _input = _DirectBackend()
@@ -77,7 +150,6 @@ def set_refill_backend(backend):
 import cv2 as cv  # noqa: E402  (nach dem Input-Backend-Block; bewusst)
 from time import time, sleep
 import random
-import os
 from windowcapture import WindowCapture
 from hsvfilter import HsvFilter
 from i18n import t
@@ -135,7 +207,10 @@ class FishingBot(FishingDetectMixin):
     _click_stats = None
 
     FISH_RANGE = 74
-    FISH_VELO_PREDICT = 30
+    # The fishing click now reaches the game much sooner than with the old
+    # 100 ms PyDirectInput mouse pause. Keep the lead near the observed
+    # capture-to-click delay (~35 ms at ~200 px/s), rather than 30 px.
+    FISH_VELO_PREDICT = 5
 
     # ECHO-KLICK-SPERRE (User-Report 2026-07-25 "der Char laeuft vor").
     # BEFUND aus zwei Live-Logs, 10 vollstaendige Runden ausgemessen: der LETZTE
