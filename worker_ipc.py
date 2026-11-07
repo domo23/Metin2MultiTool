@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Worker-seitige IPC zum Supervisor/Broker ueber ein dediziertes Pipe-Paar.
+"""Worker-seitige IPC zum Supervisor/Broker ueber dedizierte Kanaele.
 
 NICHT stdin/stdout (das ist von debuglog belegt, Finding #7) -- der Supervisor
 uebergibt pro Worker zwei FDs: ``fd_in`` (Worker liest: grant/stop) und
@@ -10,10 +10,11 @@ uebergibt pro Worker zwei FDs: ``fd_in`` (Worker liest: grant/stop) und
 WARTET auf das Grant des Brokers (FIFO-fair) -- so nutzt immer nur EIN Worker den
 physischen Cursor. Ein Reader-Thread verarbeitet eingehende Nachrichten.
 
-Voll testbar mit echten ``os.pipe()`` im selben Prozess (Linux/WSL).
+POSIX nutzt ``os.pipe()``, Windows ein vererbtes Socket-Paar.
 """
 
 import os
+import socket
 import threading
 
 from cursor_broker import encode_msg, decode_lines
@@ -23,6 +24,7 @@ class WorkerIpc:
     def __init__(self, fd_in, fd_out, idx):
         self._fd_in = fd_in
         self._fd_out = fd_out
+        self._socket = fd_in if isinstance(fd_in, socket.socket) else None
         self.idx = idx
         self._grant = threading.Event()
         self._stop = threading.Event()
@@ -40,6 +42,9 @@ class WorkerIpc:
 
     def close(self):
         self._closed.set()
+        if self._socket is not None:
+            self._socket.close()
+            return
         for fd in (self._fd_in, self._fd_out):
             try:
                 os.close(fd)
@@ -50,7 +55,11 @@ class WorkerIpc:
     def _send(self, obj):
         try:
             with self._write_lock:
-                os.write(self._fd_out, encode_msg(obj))
+                data = encode_msg(obj)
+                if self._socket is not None:
+                    self._socket.sendall(data)
+                else:
+                    os.write(self._fd_out, data)
             return True
         except Exception:
             self._closed.set()
@@ -101,7 +110,8 @@ class WorkerIpc:
         buf = b''
         while not self._closed.is_set():
             try:
-                chunk = os.read(self._fd_in, 4096)
+                chunk = (self._socket.recv(4096) if self._socket is not None
+                         else os.read(self._fd_in, 4096))
             except Exception:
                 break
             if not chunk:                  # EOF -> Supervisor/Pipe zu

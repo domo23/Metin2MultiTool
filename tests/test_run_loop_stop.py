@@ -15,6 +15,7 @@ Built on lightweight fakes (no Tk window / no win32) so it runs headless.
 """
 
 import unittest
+from unittest import mock
 
 import run_loop
 import stop_signal
@@ -63,6 +64,10 @@ class _FakeApp:
     def _maybe_show_rating_prompt(self):
         pass
 
+    def _mc_request_stop_from_hotkey(self):
+        self.multiclient_stop_requests = getattr(
+            self, 'multiclient_stop_requests', 0) + 1
+
 
 class _FakeController:
     def __init__(self, app, fishbot, puzzlebot, cfg):
@@ -108,7 +113,16 @@ class TestStopSignalCallback(unittest.TestCase):
         loop._on_stop_signal()
         self.assertFalse(fish.botting)
         self.assertFalse(puzz.botting)
+        self.assertFalse(loop._hotkey_fired)
+
+    def test_stop_hotkey_requests_multiclient_stop(self):
+        loop, app, _fish, _puzz = _make_loop()
+        with mock.patch('run_loop.stop_signal.StopHotkeyWatcher') as watcher:
+            loop.start_stop_watcher()
+        watcher.assert_called_once()
+        watcher.call_args.kwargs['on_hotkey']()
         self.assertTrue(loop._hotkey_fired)
+        self.assertEqual(app.multiclient_stop_requests, 1)
 
     def test_signal_request_fires_callback_via_add(self):
         # After wire-style registration, setting the signal clears botting -- this
@@ -129,6 +143,7 @@ class TestTickConsumesSignal(unittest.TestCase):
         # then the watcher sets the signal (which fires the callback).
         loop.stop_signal.add_callback(loop._on_stop_signal)
         loop.stop_signal.request_stop()
+        loop._on_stop_hotkey()
         self.assertTrue(loop.stop_signal.stopped)
         self.assertFalse(fish.botting)       # callback cleared botting
         self.assertTrue(loop._hotkey_fired)
@@ -150,6 +165,7 @@ class TestTickConsumesSignal(unittest.TestCase):
 
         def runHack_that_gets_stopped():
             # Simulate F6 landing while this heavy op runs.
+            loop._on_stop_hotkey()
             loop.stop_signal.request_stop()
             return None
         fish.runHack = runHack_that_gets_stopped
@@ -169,6 +185,7 @@ class TestTickConsumesSignal(unittest.TestCase):
         loop.on_stop()
         self.assertTrue(loop.stop_signal.stopped)
         self.assertFalse(loop._hotkey_fired)
+        self.assertEqual(getattr(app, 'multiclient_stop_requests', 0), 0)
         loop.tick()
         self.assertFalse(loop.stop_signal.stopped)
         from i18n import t

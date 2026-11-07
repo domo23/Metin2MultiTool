@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """End-to-End: BrokerServer (echter Thread) + mehrere WorkerIpc ueber echte
-os.pipe() -- beweist die Cursor-Serialisierung ueber den ganzen Stack
-(IPC + Broker-Lease + Grant-Zustellung). Linux/WSL.
+IPC-Kanaele -- beweist Cursor-Serialisierung ueber den ganzen Stack.
+POSIX nutzt ``os.pipe()``, Windows Socket-Paare.
 """
 
 import os
+import socket
 import threading
 import time
 import unittest
@@ -15,6 +16,9 @@ from cursor_broker_runtime import BrokerServer
 
 def _make_pair():
     """(server_read, server_write, worker_fd_in, worker_fd_out) fuer einen Worker."""
+    if os.name == 'nt':
+        server_sock, worker_sock = socket.socketpair()
+        return server_sock, server_sock, worker_sock, worker_sock
     w2s_r, w2s_w = os.pipe()      # Worker -> Server
     s2w_r, s2w_w = os.pipe()      # Server -> Worker
     return w2s_r, s2w_w, s2w_r, w2s_w
@@ -32,7 +36,10 @@ class TestBrokerIntegration(unittest.TestCase):
         self.server.stop()
         for fd in self._fds:
             try:
-                os.close(fd)
+                if isinstance(fd, socket.socket):
+                    fd.close()
+                else:
+                    os.close(fd)
             except Exception:
                 pass
 
@@ -43,6 +50,22 @@ class TestBrokerIntegration(unittest.TestCase):
         ipc = worker_ipc.WorkerIpc(w_in, w_out, idx=idx).start()
         self._workers[idx] = ipc
         return ipc
+
+    def _add_socket_worker(self, idx):
+        server_sock, worker_sock = socket.socketpair()
+        self._fds += [server_sock, worker_sock]
+        self.server.register(idx, read_fd=server_sock, write_fd=server_sock)
+        ipc = worker_ipc.WorkerIpc(worker_sock, worker_sock, idx=idx).start()
+        self._workers[idx] = ipc
+        return ipc
+
+    def test_socket_transport_handles_acquire_and_grant(self):
+        worker = self._add_socket_worker(0)
+        worker.acquire(0, holds_button=False, timeout=2.0)
+        worker.release(0)
+
+    def test_broker_waits_before_worker_registration(self):
+        self.assertTrue(self.server._thread.is_alive())
 
     def test_two_workers_never_hold_simultaneously(self):
         w0 = self._add_worker(0)

@@ -177,10 +177,12 @@ class StopHotkeyWatcher:
     """
 
     def __init__(self, signal, key_provider, poll_fn=None,
-                 poll_seconds=POLL_SECONDS, refresh_every=40):
+                 poll_seconds=POLL_SECONDS, refresh_every=40,
+                 on_hotkey=None):
         self.signal = signal
         self._key_provider = key_provider
         self._poll_fn = poll_fn if poll_fn is not None else _default_poll
+        self._on_hotkey = on_hotkey
         self._poll_seconds = poll_seconds
         # Re-read the key from config every ``refresh_every`` polls (not each one
         # -- the string rarely changes). At 5 ms/poll, 40 -> ~5x/second.
@@ -256,6 +258,11 @@ class StopHotkeyWatcher:
             fired = down and not self._was_down
             self._was_down = down
             if fired:
+                if callable(self._on_hotkey):
+                    try:
+                        self._on_hotkey()
+                    except Exception:
+                        pass
                 self.signal.request_stop()
             return fired
         except Exception:

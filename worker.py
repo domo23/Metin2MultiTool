@@ -8,7 +8,7 @@ Modus-Bot OHNE GUI und treibt seine Klicks ueber den CursorClient -> Broker.
 Startup-Invarianten (per T6b geprueft):
   * data_dir aus ENV M2FB_DATA_DIR -> config/stats/log isoliert (paths.py).
   * debuglog mit to_console=False (Finding #7: stdout ist NICHT der IPC-Kanal;
-    IPC laeuft ueber das dedizierte os.pipe()-Paar --ipc-fd-in/-out).
+    IPC laeuft ueber dedizierte --ipc-fd-in/-out-Kanaele).
   * Telemetrie wird NIE gestartet (Finding #6: 4 Worker unter einer install_id
     => Server-Doppelzaehlung). Nur der Supervisor sendet.
   * set_preferred_hwnd(args.hwnd) VOR jeder WindowCapture.
@@ -53,6 +53,10 @@ class Deps:
 
     def make_ipc(self, fd_in, fd_out, idx):
         from worker_ipc import WorkerIpc
+        if fd_in == fd_out:
+            import socket
+            ipc_socket = socket.socket(fileno=fd_in)
+            return WorkerIpc(ipc_socket, ipc_socket, idx).start()
         return WorkerIpc(fd_in, fd_out, idx).start()
 
     def make_cursor(self, idx, hwnd, ipc):

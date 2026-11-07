@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Laufzeit-Huelle des Cursor-Brokers: ein Thread bedient ALLE Worker-Pipes.
+"""Laufzeit-Huelle des Cursor-Brokers: ein Thread bedient ALLE Worker-Kanaele.
 
-Verbindet die reine :class:`cursor_broker.CursorBroker`-Logik mit echten FDs:
+Verbindet die reine :class:`cursor_broker.CursorBroker`-Logik mit echten FDs/
+Sockets:
 liest acquire/release/heartbeat der Worker (``selectors``), schreibt Grants
 zurueck, ruft periodisch ``tick`` (Hang-Hard-Timeout). EOF eines Workers ->
 ``on_eof`` (Lease-Drop). Der Heartbeat wird an einen optionalen Callback
 weitergereicht (Supervisor-Liveness).
 
 Bewusst getrennt von der Logik, damit Letztere ohne FDs/Threads testbar bleibt;
-diese Huelle wird per Integrationstest mit echten ``os.pipe()`` geprueft.
+diese Huelle wird per Integrationstest mit echten Pipes und Sockets geprueft.
 """
 
 import os
 import selectors
+import socket
 import threading
 import time
 
@@ -32,6 +34,10 @@ class BrokerServer:
         self._stop = threading.Event()
         self._thread = None
         self._lock = threading.Lock()
+        self._wake_read, self._wake_write = socket.socketpair()
+        self._wake_read.setblocking(False)
+        self._wake_write.setblocking(False)
+        self._sel.register(self._wake_read, selectors.EVENT_READ, None)
         self.broker = CursorBroker(
             send_grant=self._send_grant, neutralize=neutralize,
             on_revoke=on_revoke, lease_timeout=lease_timeout,
@@ -39,11 +45,22 @@ class BrokerServer:
 
     # -- Registrierung ------------------------------------------------------
     def register(self, idx, read_fd, write_fd):
-        """Registriert einen Worker: server liest ``read_fd``, schreibt ``write_fd``."""
+        """Registriert einen Worker: server liest ``read_fd``, schreibt ``write_fd``.
+
+        Windows callers use a socket for both directions because the Windows
+        selector cannot monitor anonymous pipe handles.
+        """
         with self._lock:
             self._wfds[idx] = write_fd
             self._bufs[idx] = b''
             self._sel.register(read_fd, selectors.EVENT_READ, idx)
+            self._wake()
+
+    def _wake(self):
+        try:
+            self._wake_write.send(b'\0')
+        except BlockingIOError:
+            pass
 
     def _unregister(self, idx, read_fd):
         try:
@@ -61,7 +78,16 @@ class BrokerServer:
         return self
 
     def stop(self):
+        if self._stop.is_set():
+            return
         self._stop.set()
+        self._wake()
+        if self._thread is not None and \
+                self._thread is not threading.current_thread():
+            self._thread.join()
+        self._sel.close()
+        self._wake_read.close()
+        self._wake_write.close()
 
     def serve(self):
         """Haupt-Loop: I/O + periodischer Tick bis ``stop()``."""
@@ -69,7 +95,14 @@ class BrokerServer:
         while not self._stop.is_set():
             events = self._sel.select(timeout=self._tick_interval)
             for key, _mask in events:
-                self._on_readable(key.fileobj, key.data)
+                if key.data is None:
+                    try:
+                        while self._wake_read.recv(4096):
+                            pass
+                    except BlockingIOError:
+                        pass
+                else:
+                    self._on_readable(key.fileobj, key.data)
             now = self._clock()
             if now >= next_tick:
                 with self._lock:
@@ -78,7 +111,8 @@ class BrokerServer:
 
     def _on_readable(self, read_fd, idx):
         try:
-            chunk = os.read(read_fd, 4096)
+            chunk = (read_fd.recv(4096) if isinstance(read_fd, socket.socket)
+                     else os.read(read_fd, 4096))
         except Exception:
             chunk = b''
         if not chunk:                          # EOF -> Worker tot (Crash)
@@ -103,7 +137,11 @@ class BrokerServer:
         if fd is None:
             return
         try:
-            os.write(fd, encode_msg({'grant': idx}))
+            data = encode_msg({'grant': idx})
+            if isinstance(fd, socket.socket):
+                fd.sendall(data)
+            else:
+                os.write(fd, data)
         except Exception:
             pass
 
@@ -113,6 +151,10 @@ class BrokerServer:
             fds = list(self._wfds.values())
         for fd in fds:
             try:
-                os.write(fd, encode_msg({'cmd': 'stop'}))
+                data = encode_msg({'cmd': 'stop'})
+                if isinstance(fd, socket.socket):
+                    fd.sendall(data)
+                else:
+                    os.write(fd, data)
             except Exception:
                 pass

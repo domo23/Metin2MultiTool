@@ -347,7 +347,7 @@ class MulticlientViewMixin:
             return
         self._mc_running = True
         try:
-            self._mc_start_btn.configure(text=t('ui.mc_stop_all'),
+            self._mc_start_btn.configure(text=self._mc_stop_button_text(),
                                          fg_color=DANGER, hover_color=DANGER_HOVER)
         except Exception:
             pass
@@ -385,3 +385,23 @@ class MulticlientViewMixin:
         """Signalisiert dem Launcher-Thread das Ende (should_run -> False)."""
         self._mc_running = False
         self._mc_set_status(t('ui.mc_stopped'))
+
+    def _mc_request_stop_from_hotkey(self):
+        """Thread-safe F6 request; UI is refreshed by the launcher thread."""
+        if self._mc_running:
+            self._mc_running = False
+
+    def _mc_stop_button_text(self):
+        """Button-Beschriftung analog zum globalen Stop-Knopf inkl. Hotkey."""
+        try:
+            hotkey = (self.controller.current_config()
+                      .get('controls', {}).get('stop_hotkey', 'f6'))
+            hotkey = str(hotkey or 'f6').upper()
+        except Exception:
+            hotkey = 'F6'
+        return '■  ' + t('ui.mc_stop_all_hotkey', hotkey=hotkey)
+
+    def _mc_sync_stop_button(self):
+        """Aktualisiert den angezeigten Hotkey, falls er waehrenddessen wechselt."""
+        if self._mc_running:
+            self._mc_start_btn.configure(text=self._mc_stop_button_text())

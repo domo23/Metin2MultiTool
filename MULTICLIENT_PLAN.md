@@ -28,7 +28,7 @@
 | `monitor_layout.py` | **Monitor-Erkennung + Kachelung** auf Monitor der Wahl, `choose_clients` (>N → markieren) | `test_monitor_layout.py` |
 | `worker.py` | headless Entry: kein CTk, **keine Telemetrie**, `to_console=False`, per-Client data_dir, Heartbeat | `test_worker_entry.py` |
 
-**Capstone-Beweis** (`test_broker_integration.py`): Broker-Thread + 2 Worker über echte `os.pipe()` → **nie halten zwei Worker gleichzeitig den Cursor** (`active.max==1`); Crash droppt Lease, FIFO + Stop-Broadcast belegt.
+**Capstone-Beweis** (`test_broker_integration.py`): Broker-Thread + 2 Worker über echte IPC-Kanäle → **nie halten zwei Worker gleichzeitig den Cursor** (`active.max==1`); Crash droppt Lease, FIFO + Stop-Broadcast belegt.
 
 **Devil's-Advocate-Fund (gefixt):** `Supervisor` hätte einen langsam startenden Worker (lädt cv2/Templates/trained_V) fälschlich als „Hänger" gekillt → **Startup-Grace** eingeführt (Crash via Exit-Code gilt weiter sofort).
 
@@ -85,8 +85,8 @@ auch gemischt.
             │    serialisiert ALLE physischen Cursor-Bursts │
             │  - F6 StopHotkeyWatcher (global)              │
             └───────┬───────────┬───────────┬──────────────┘
-   DEDIZIERTES IPC-Pipe-Paar pro Worker (NICHT stdin/stdout — siehe §4.1/§5.1:
-   stdout ist von debuglog belegt, daher eigenes os.pipe()-Paar je Richtung)
+   DEDIZIERTER IPC-Kanal pro Worker (NICHT stdin/stdout — siehe §4.1/§5.1:
+   POSIX nutzt Pipes, Windows ein vererbtes Socket-Paar)
                     │           │           │
         ┌───────────▼─┐ ┌───────▼─────┐ ┌───▼──────────┐
         │ Worker 0    │ │ Worker 1    │ │ Worker 2..3  │
@@ -165,7 +165,7 @@ von Maßnahmen bleiben dennoch nötig: **(A) Picker→HWND je Worker**, **(B) Da
 | Geometrie-Maße `BORDER_PIXELS=8`, `TITLEBAR_PIXELS=30` (`windowcapture.py:21-22`) | Modul-Konstanten, von `__init__` (`:258-263`) + `client_size`-Mathematik (`:145-146`) genutzt | unverändert geteilt (read-only, identisch für alle) | KEINE Änderung. Sie sind echte Konstanten, kein veränderlicher Zustand. |
 | `WindowCapture.offset_x/offset_y` (`windowcapture.py:267-268`) | Instanz-Attribut, EINMALIG im `__init__` aus `GetWindowRect` eingefroren | je Worker korrekt, ABER nach Tiling-`MoveWindow` veraltet | Neue Methode `WindowCapture.resync_offsets()`: liest `win32gui.GetWindowRect(self.hwnd)` neu und setzt `offset_x/offset_y` neu (Code identisch zu `:242,267-268`). Supervisor sendet nach jedem Re-Tiling die IPC-Nachricht `{"cmd":"resync"}`; Worker ruft `self.wincap.resync_offsets()` (G4). |
 | `pydirectinput.PAUSE` (gesetzt u. a. `fishingbot.py:2,629`; `puzzle.py:2,758-783`; `energiesplitter/bot.py:889`; `interface/seher_runner.py:201,438-459`) | Modul-Attribut, prozessweit | je Worker privat | KEINE Race-Mitigation nötig (Prozess-isoliert). ABER: alle Setzungen wandern in den `CursorClient`-Adapter, der `PAUSE` NUR innerhalb der gehaltenen Lease setzt (G2) und nach dem Burst restauriert. Direktzugriff verboten (G6). |
-| `debuglog.log` Singleton (`debuglog.py:233`); `configure()` öffnet im `'w'`-Modus = truncate (`debuglog.py:43-55`); **stdout-Senke** `to_console=True` (`hack.py:51`) | prozessweiter Singleton, fester Pfad `%APPDATA%/Metin2FishBot/puzzle_debug.log` + **schreibt auf stdout** | je Worker eigene Logdatei, **stdout NICHT als Log-Senke** | Worker ruft `log.configure(path=<data_dir>/puzzle_debug.log, to_console=False)` mit `data_dir = %APPDATA%/Metin2FishBot/client-<idx>/`. **`to_console=False` ist Pflicht** (HIGH): liefe debuglog weiter auf stdout, vermischte sich der intensive Bot-Log mit dem geplanten JSON-IPC → Parser-Korruption beim Supervisor. Daher (a) Worker zwingt `to_console=False` UND (b) der IPC läuft NICHT über stdin/stdout, sondern über ein dediziertes `os.pipe()`-Paar (§4.1/§5.1). Da Pfad disjunkt → kein Truncation-Cross-Talk, kein Interleave. |
+| `debuglog.log` Singleton (`debuglog.py:233`); `configure()` öffnet im `'w'`-Modus = truncate (`debuglog.py:43-55`); **stdout-Senke** `to_console=True` (`hack.py:51`) | prozessweiter Singleton, fester Pfad `%APPDATA%/Metin2FishBot/puzzle_debug.log` + **schreibt auf stdout** | je Worker eigene Logdatei, **stdout NICHT als Log-Senke** | Worker ruft `log.configure(path=<data_dir>/puzzle_debug.log, to_console=False)` mit `data_dir = %APPDATA%/Metin2FishBot/client-<idx>/`. **`to_console=False` ist Pflicht** (HIGH): liefe debuglog weiter auf stdout, vermischte sich der intensive Bot-Log mit dem geplanten JSON-IPC → Parser-Korruption beim Supervisor. Daher (a) Worker zwingt `to_console=False` UND (b) der IPC läuft NICHT über stdin/stdout, sondern über einen dedizierten IPC-Kanal (§4.1/§5.1). Da Pfad disjunkt → kein Truncation-Cross-Talk, kein Interleave. |
 | `stats.DEFAULT_STATS_PATH` (`stats.py:34-37`); `save()` atomar aber ohne Cross-Proc-Lock (`stats.py:172-218`); `_TMP_SEQ`/`_TMP_SEQ_LOCK` (`stats.py:221-222`) | gemeinsame `stats.json` → Lost-Update | je Worker eigene `stats.json` unter `client-<idx>/` | Worker setzt vor `statsmod.load()` den Pfad auf `<data_dir>/stats.json`. Supervisor aggregiert für die Anzeige read-only über alle `client-*/stats.json`. `_TMP_SEQ` ist durch PID ohnehin kollisionsfrei → bleibt. |
 | `config.json` (`interface/config/paths.py:80-95`) | gemeinsame Datei, Last-Writer-Wins beim Stop | Basis read-only geteilt + per-Client-Overlay | Supervisor liest die Basis-`config.json` 1×; jeder Worker bekommt seine Modus-/Key-Auswahl per CLI `--mode <name>` + lädt/schreibt ein **Overlay** `<data_dir>/config.json` (nur die client-spezifischen Felder). Basis-Datei wird von Workern NICHT mehr geschrieben. |
 | `trained_solver._V` (`trained_solver.py:61`); `load_V` ohne Lock, `np.save` race (`:109-144`); **Tier-2-Pfad** gebündelte `trained_V.npz` via `respath` + optionaler `np.save`-Spiegel (`:118-144`) | 4× compute (4×12 s, ~536 MB Peak), korrumpierte `.npy`; **zusätzlich Tier-2 `np.save`-Race** auf den Spiegel | 1× shared read-only | Supervisor baut/lädt `trained_V.npy` 1× VOR Spawn (atomic tmp→`os.replace`), setzt ENV `M2FB_TRAINED_V=<pfad>` + `M2FB_TRAINED_V_READY=1`. `load_V` (`trained_solver.py:109-144`) bekommt einen frühen Pfad: ist `M2FB_TRAINED_V_READY` gesetzt → nur `np.load`, NIE `_compute_V`/`np.save`. **Wichtig (HIGH-Korrektur):** Das ENV-Gate G5 muss AUCH den Tier-2-Spiegel (`:118-144`) abdecken — im READY-Fall den optionalen `np.save`-Spiegel der gebündelten `.npz` ebenfalls überspringen, sonst bleibt der `np.save`-Race in Tier-2 bestehen. Worker-Assert: Datei existiert, sonst hartes Fail (G5). |
@@ -199,9 +199,10 @@ gehen über sie.
 - **CursorClient-Adapter** (neu, `cursor_client.py`) im Worker kapselt den kompletten Burst:
 
 **IPC-Kanal (HIGH-Korrektur):** Der IPC läuft NICHT über stdin/stdout — stdout ist von der
-debuglog-Senke belegt (§3) und würde das JSON-Protokoll korrumpieren. Stattdessen ein **dediziertes
-`os.pipe()`-Paar pro Worker** (Supervisor erzeugt die FDs vor `Popen`, übergibt sie per `pass_fds=`
-und CLI-Arg `--ipc-fd-in/--ipc-fd-out`). Worker setzt zusätzlich `log.configure(to_console=False)`.
+debuglog-Senke belegt (§3) und würde das JSON-Protokoll korrumpieren. Stattdessen dedizierte
+IPC-Kanäle pro Worker: POSIX nutzt zwei `os.pipe()`-Paare, Windows ein vererbtes Socket-Paar
+(Windows-Selektoren unterstützen keine anonymen Pipes). Worker setzt zusätzlich
+`log.configure(to_console=False)`.
 
 ```
 # Pseudocode CursorClient.burst(actions, hwnd, mouse_pause, holds_button)
@@ -318,12 +319,14 @@ garantiertes `mouseUp` (siehe `finally`).
 - **Worker-Entry ist `worker.py`, NICHT `hack.py` (CRITICAL-Korrektur, Finding #5):** `hack.py` hat kein
   argparse und startet die volle CTk-GUI (`:66 App(cfg)`, `:79 app.mainloop()`), die intern BEIDE Bots
   baut. Der Supervisor startet daher den **echten headless Entry**:
-  `subprocess.Popen([sys.executable, "worker.py", "--client", str(idx), "--hwnd", str(hwnd), "--mode", mode, "--ipc-fd-in", ..., "--ipc-fd-out", ...], pass_fds=(...), env=...)`.
-- **IPC über dediziertes `os.pipe()`-Paar, NICHT stdin/stdout (HIGH, Finding #7):** stdout ist von der
-  debuglog-Senke belegt; JSON-IPC darüber würde korrumpieren. Supervisor erzeugt vor `Popen` zwei
-  Pipe-Paare (je Richtung), reicht die FDs per `pass_fds=` + CLI durch. stderr→Logdatei
-  `client-<idx>/worker_stderr.log`. Der Worker erzwingt `log.configure(to_console=False)` (§3).
-- **Heartbeat:** Worker sendet alle 2 s `{"cmd":"hb","idx":N,"state":...}` über die IPC-Pipe; Supervisor speichert `last_heartbeat`.
+  `--ipc-fd-in/--ipc-fd-out`; POSIX nutzt `pass_fds`, Windows die
+  `STARTUPINFO`-Handle-Liste für den Socket-Endpunkt.
+- **IPC auf dediziertem Kanal, NICHT stdin/stdout (HIGH, Finding #7):** stdout ist von der
+  debuglog-Senke belegt; JSON-IPC darüber würde korrumpieren. POSIX nutzt zwei Pipe-Paare je
+  Worker; Windows nutzt ein vererbtes Socket-Paar, da Windows-Selektoren keine anonymen Pipes
+  unterstützen. stderr→Logdatei `client-<idx>/worker_stderr.log`. Der Worker erzwingt
+  `log.configure(to_console=False)` (§3).
+- **Heartbeat:** Worker sendet alle 2 s `{"cmd":"hb","idx":N,"state":...}` über den IPC-Kanal; Supervisor speichert `last_heartbeat`.
 
 ### 5.2 Crash-Erkennung & "andere laufen weiter"
 
@@ -455,19 +458,12 @@ den Hardware-Button-State (`mouseUp` left+right, §4.1).
 - **Beim "Alle starten":** wenn `window.minimize_to_tray` true und `tray.available()` → `self._hide_to_tray()`
   aufrufen, damit das Steuerfenster minimiert/in Tray geht und die Spielfenster frei sichtbar tiled sind.
   Fallback ohne pystray: `self.iconify()` (Iconbar-Minimize).
-- **Globaler F6-Toggle:** der bestehende `StopHotkeyWatcher` (`stop_signal.py:162-214`, gewired in
-  `run_loop.py:174-176`) wandert in den **Supervisor**-Prozess. Bei F6:
-  1. Broadcast `{"cmd":"stop"}` an ALLE Worker → jeder setzt `botting=False` (Pfad `run_loop.py:189-202`, lokal im Worker), stoppt sauber.
-     **WICHTIG (Finding #4):** Ein reiner stdin/IPC-Broadcast genügt NICHT für „sofort", weil der
-     Worker während eines laufenden atomaren Bursts (G2) keinen IPC pollt → Stop wirkte erst nach dem
-     Burst (bis ~1,5 s Cap, im Drag-Fall mit gehaltener Taste). Daher setzt der Broadcast (bzw. ein
-     Worker-eigener `StopHotkeyWatcher`, repliziert aus `stop_signal.py:162-176`) das abort-Flag, das
-     `CursorClient.burst()` in JEDEM Schleifenschritt abfragt (§4.1 `self._stop_requested()`); der
-     laufende Burst wird mit garantiertem `mouseUp` abgebrochen → sub-0,2 s Stop (Erfolgskriterium 8)
-     auch für den Worker, der gerade die Lease hält.
-  2. Steuerfenster wiederherstellen/vergrößern: `self.deiconify()` + (falls Tray) `self._tray_icon.stop()` + `self.lift()`/`self.focus_force()`.
-  Damit ist F6 = Panik-Stop ALLER + Restore. (Innerhalb jedes Workers bleibt sein eigener Tick-Stop für lokale Sauberkeit.)
-- Hotkey-String bleibt `controls.stop_hotkey` (Default `f6`); `key_provider` liest ihn wie heute (`run_loop.py:176`).
+- **Globaler Stop-Hotkey:** der vorhandene `StopHotkeyWatcher` (`stop_signal.py`, verdrahtet in
+  `run_loop.py`) ruft bei der Hotkey-Flanke zusätzlich den Multiclient-Stop an. Der Launcher
+  beendet danach alle Worker über seinen normalen Broadcast-/Shutdown-Pfad. Der Multiclient-
+  Start/Stop-Knopf zeigt während des Laufs die konfigurierte Taste an, z. B. `Stop all [F6]`.
+  Ein Klick auf den normalen Bot-Stop-Knopf löst diesen Multiclient-Stop nicht aus.
+- Hotkey-String bleibt `controls.stop_hotkey` (Default `f6`); `key_provider` liest ihn live.
 
 ---
 
@@ -511,7 +507,7 @@ den Hardware-Button-State (`mouseUp` left+right, §4.1).
    (Finding #7); **Telemetrie NICHT starten** (kein `_start_telemetry`, Finding #6); GENAU EINEN Modus-Bot
    bauen (je `--mode`: `FishingBot`/`PuzzleBot`/Seher-Runner/Energiesplitter) und über `RunLoop`/
    `seher_runner` OHNE CTk-App headless ticken; `CursorClient` im **IPC-Modus** über das dedizierte
-   `os.pipe()`-Paar (`--ipc-fd-in/-out`), NICHT stdin/stdout (Finding #7). Top-Level `try/except` (§5.3) +
+   dedizierten IPC-Kanal (`--ipc-fd-in/-out`), NICHT stdin/stdout (Finding #7). Top-Level `try/except` (§5.3) +
    Heartbeat-Sender + Worker-eigener `StopHotkeyWatcher` (Finding #4).
    (Alternativ darf `hack.py` einen `if __name__=='__main__'`+argparse+`--headless`-Zweig bekommen, der
    denselben headless Pfad nimmt — aber kein Platzhalter, echter Code.)
@@ -530,8 +526,9 @@ den Hardware-Button-State (`mouseUp` left+right, §4.1).
     beide Fischen. *Test (manuell + `multiclient_probe.py` erweitern):* beide angeln parallel, kein Klick im falschen Fenster, Crash von Worker 1 (`taskkill`) → Worker 0 läuft weiter.
 12. **Hochskalieren 4 Clients, gemischte Modi:** 2× Fischen + 1× Puzzle + 1× Seher. *Test:* alle 4 laufen, Durchsatz messen (Erfolgskriterium ≥ 3,5×), Datei-Isolation prüfen (`client-0..3/`).
 13. **GUI Multiclient-Bereich (`interface/app/`):** Picker (`enumerate_game_windows`), Modus-Dropdown, Start/Stop pro Zeile, Status, "+/–ient", `config['multiclient']`-Persistenz. *Test:* `tests/test_gui_smoke.py` erweitern; manuell Start/Stop/Add/Remove.
-14. **Tray + F6-Global:** beim "Alle starten" `_hide_to_tray()`/`iconify`; `StopHotkeyWatcher` in den Supervisor,
-    F6 → Broadcast `stop` + Restore (`deiconify`/`lift`). *Test:* F6 stoppt alle 4 + Steuerfenster kommt zurück.
+14. **Tray + F6-Global:** optional beim "Alle starten" `_hide_to_tray()`/`iconify`; der vorhandene
+    `StopHotkeyWatcher` in `RunLoop` fordert den Multiclient-Stop an, der Launcher broadcastet `stop`
+    und beendet die Worker. *Test:* F6 stoppt alle laufenden Worker.
 15. **Re-Tiling unter Lease (G4) verifizieren:** add/remove während ein anderer Worker klickbereit ist → kein Klick daneben (Lease hält Layout-Move ab, danach resync). *Test:* gezielter Stresslauf add/remove im Sekundentakt.
 
 ---

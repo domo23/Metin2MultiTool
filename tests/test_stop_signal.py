@@ -117,6 +117,19 @@ class TestHotkeyWatcher(unittest.TestCase):
         self.assertTrue(w.poll_once())           # up->down edge fires
         self.assertTrue(w.signal.stopped)
 
+    def test_hotkey_callback_only_runs_on_press_edge(self):
+        fired = []
+        state = {'down': False}
+        w = ss.StopHotkeyWatcher(
+            ss.StopSignal(), lambda: 'f6',
+            poll_fn=lambda _vk: state['down'], refresh_every=1,
+            on_hotkey=lambda: fired.append(True))
+        state['down'] = True
+        self.assertTrue(w.poll_once())
+        self.assertEqual(fired, [True])
+        self.assertFalse(w.poll_once())
+        self.assertEqual(fired, [True])
+
     def test_holding_does_not_refire(self):
         w, state = self._watcher()
         state['down'] = True

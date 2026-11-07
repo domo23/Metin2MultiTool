@@ -69,6 +69,7 @@ _REQUIRED_KEYS = (
     'ui.pick_window_btn', 'ui.pick_window_title', 'ui.pick_window_row',
     'ui.window_chosen', 'ui.window_mode_last_focused', 'ui.window_mode_specific',
     'ui.window_mode_changed', 'ui.window_mode_toggle_tip',
+    'ui.mc_stop_all_hotkey',
     # CS5 fake test windows
     'ui.test_window_inventory_opened', 'ui.test_window_opened',
     'ui.test_window_failed',

@@ -438,6 +438,7 @@ TRANSLATIONS = {
     'ui.mc_no_windows': {'en': 'No game window found — open Metin2 first.', 'de': 'Kein Spielfenster gefunden — erst Metin2 öffnen.'},
     'ui.mc_start_all': {'en': 'Start all', 'de': 'Alle starten'},
     'ui.mc_stop_all': {'en': 'Stop all', 'de': 'Alle stoppen'},
+    'ui.mc_stop_all_hotkey': {'en': 'Stop all [{hotkey}]', 'de': 'Alle stoppen [{hotkey}]'},
     'ui.mc_not_ready': {'en': 'Please mark a window for every client first.', 'de': 'Bitte zuerst für jeden Client ein Fenster markieren.'},
     'ui.mc_running': {'en': 'Running {n} clients…', 'de': '{n} Clients laufen…'},
     'ui.mc_stopped': {'en': 'All clients stopped.', 'de': 'Alle Clients gestoppt.'},

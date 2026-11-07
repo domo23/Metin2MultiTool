@@ -4,25 +4,25 @@
 Verdrahtet die fertigen Bausteine zu einem startbaren Ganzen:
 
   BrokerServer (eine physische Maus, Lease)  +  Supervisor (1-4 Worker-Prozesse)
-        ^  Heartbeat/Lease/EOF ueber je-Worker os.pipe()-Paar  ^
+        ^  Heartbeat/Lease/EOF ueber Worker-IPC (POSIX-Pipes, Windows-Socket)  ^
         └──────────────── spawn: worker.py --client/--hwnd/--mode ───────────┘
 
-Pro Client zwei ``os.pipe()``-Paare (Worker->Broker: acquire/release/heartbeat;
-Broker->Worker: grant/stop), beim Broker registriert und per ``pass_fds`` an den
-Worker-Prozess vererbt. Der Broker-Thread routet eingehende Nachrichten selbst
-(Heartbeat -> Supervisor, Lease -> CursorBroker, EOF -> Lease freigeben).
+POSIX: pro Client zwei ``os.pipe()``-Paare. Windows: ein vererbtes Socket-Paar,
+weil dort ``selectors`` keine anonymen Pipes unterstuetzt. Der Broker-Thread
+routet eingehende Nachrichten selbst (Heartbeat -> Supervisor, Lease ->
+CursorBroker, EOF -> Lease freigeben).
 
 LIVE-ONLY: der reale Prozess-Spawn (``subprocess.Popen`` + FD-Vererbung) und die
 Fenster-Enumeration sind nur am Windows-Spiel verifizierbar. Die ORCHESTRIERUNG
 (Pipe-Paarung, Registrierung, Kommandozeile, Broker/Supervisor-Verdrahtung,
 Lauf-/Stop-Schleife) ist ueber injizierte Bausteine (``*_factory``/``popen``/
-``pipe``) unit-getestet. Hinweis: ``pass_fds`` vererbt FDs unter Unix direkt; auf
-Windows nutzt CPython (>=3.7) die Handle-Vererbungsliste -- das ist am echten
-Windows-Build zu bestaetigen (offene Frage des MULTICLIENT_PLAN, Schritt 11/12).
+``pipe``) unit-getestet. Windows vererbt den Worker-Socket ueber die
+``STARTUPINFO``-Handle-Liste; POSIX verwendet ``pass_fds``.
 """
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -75,19 +75,37 @@ def make_spawn(python_exe, worker_script, broker, *, popen=None, pipe=None,
                set_inheritable=None, closer=None, base_env=None):
     """Baut ``spawn_fn(idx, hwnd, mode, data_dir) -> proc`` fuer den Supervisor.
 
-    Pro Aufruf: zwei ``os.pipe()``-Paare anlegen, beim ``broker`` registrieren
-    (er liest die Worker->Broker-Richtung, schreibt Grants in die andere), die
-    worker-seitigen FDs vererbbar machen, ``worker.py`` per ``pass_fds`` spawnen
-    und die worker-seitigen FDs im Parent schliessen (nur der Worker nutzt sie).
-    Alle OS-Primitiven sind injizierbar -> die Verdrahtung ist testbar.
+    POSIX nutzt zwei ``os.pipe()``-Paare. Windows nutzt ein Socket-Paar, da
+    ``selectors`` dort keine anonymen Pipes lesen kann. Der Worker-Endpunkt wird
+    ueber die Windows-Handle-Liste vererbt; POSIX verwendet ``pass_fds``.
     """
     popen = popen or subprocess.Popen
+    use_windows_sockets = os.name == 'nt' and pipe is None
     pipe = pipe or os.pipe
     set_inheritable = set_inheritable or os.set_inheritable
     closer = closer or os.close
     base_env = base_env if base_env is not None else os.environ
 
     def spawn(idx, hwnd, mode, data_dir):
+        if use_windows_sockets:
+            broker_sock, worker_sock = socket.socketpair()
+            worker_fd = worker_sock.fileno()
+            worker_sock.set_inheritable(True)
+            broker.register(idx, broker_sock, broker_sock)
+            cmd = _sup.build_worker_cmd(
+                python_exe, worker_script, idx, hwnd, mode,
+                ipc_fd_in=worker_fd, ipc_fd_out=worker_fd)
+            env = dict(base_env)
+            if data_dir:
+                env['M2FB_DATA_DIR'] = data_dir
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.lpAttributeList = {'handle_list': [worker_fd]}
+            try:
+                return popen(cmd, close_fds=True, startupinfo=startupinfo,
+                             env=env)
+            finally:
+                worker_sock.close()
+
         # a: Worker -> Broker (Worker schreibt a_w, Broker liest a_r)
         # b: Broker -> Worker (Broker schreibt b_w, Worker liest b_r)
         a_r, a_w = pipe()
@@ -176,7 +194,7 @@ def run(specs, *, python_exe=None, worker_script='worker.py',
             sup.add_client(idx, hwnd, mode, client_data_dir(idx))
 
         try:
-            while sup.alive_ids() and should_run():
+            while sup.alive_ids and should_run():
                 sup.poll()
                 sleep(poll_interval)
         except KeyboardInterrupt:

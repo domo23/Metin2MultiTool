@@ -173,7 +173,8 @@ class RunLoop:
         try:
             self.stop_signal.add_callback(self._on_stop_signal)
             self._stop_watcher = stop_signal.StopHotkeyWatcher(
-                self.stop_signal, key_provider=self._current_stop_key)
+                self.stop_signal, key_provider=self._current_stop_key,
+                on_hotkey=self._on_stop_hotkey)
             self._stop_watcher.start()
         except Exception:
             self._stop_watcher = None
@@ -191,15 +192,26 @@ class RunLoop:
 
         Raeumt SOFORT ``botting`` beider Bots -- ein einfacher bool-Write, unter
         dem GIL atomar, also thread-sicher ohne Lock. Der Hauptloop spiegelt das
-        beim naechsten Tick ins UI (notify_stop). Wirft nie -- darf den Daemon
-        nie kippen.
+        beim naechsten Tick ins UI (notify_stop). Das Signal kann auch vom
+        normalen Stop-Button kommen; die Hotkey-Quelle wird separat in
+        ``_on_stop_hotkey`` markiert. Wirft nie -- darf den Daemon nie kippen.
         """
         try:
-            self._hotkey_fired = True
             self.fishbot.botting = False
             self.puzzlebot.botting = False
             if self.esbot is not None:
                 self.esbot.botting = False
+        except Exception:
+            pass
+
+    def _on_stop_hotkey(self):
+        """Stoppt Multiclient ebenfalls, wenn die konfigurierte Stop-Taste faellt."""
+        self._hotkey_fired = True
+        try:
+            request_stop = getattr(
+                self.app, '_mc_request_stop_from_hotkey', None)
+            if callable(request_stop):
+                request_stop()
         except Exception:
             pass
 

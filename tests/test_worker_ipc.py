@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""WorkerIpc mit echten os.pipe() (in-process Supervisor-Simulation, Linux/WSL)."""
+"""WorkerIpc mit echten Pipes oder Sockets (in-process Supervisor-Simulation)."""
 
 import os
+import socket
 import threading
 import time
 import unittest
@@ -14,6 +15,10 @@ class SupervisorEnd:
     """Simuliert die Supervisor-Seite eines Worker-Pipe-Paars."""
 
     def __init__(self):
+        if os.name == 'nt':
+            self.worker_sock, self.supervisor_sock = socket.socketpair()
+            self._buf = b''
+            return
         # Pipe A: Supervisor -> Worker (grant/stop). Worker liest a_r.
         self.a_r, self.a_w = os.pipe()
         # Pipe B: Worker -> Supervisor (acquire/release/heartbeat).
@@ -21,9 +26,14 @@ class SupervisorEnd:
         self._buf = b''
 
     def worker_fds(self):
+        if os.name == 'nt':
+            return self.worker_sock, self.worker_sock
         return self.a_r, self.b_w     # (fd_in, fd_out) fuer den Worker
 
     def send(self, obj):
+        if os.name == 'nt':
+            self.supervisor_sock.sendall(encode_msg(obj))
+            return
         os.write(self.a_w, encode_msg(obj))
 
     def recv_one(self, timeout=2.0):
@@ -32,13 +42,37 @@ class SupervisorEnd:
             msgs, self._buf = decode_lines(self._buf)
             if msgs:
                 return msgs[0]
-            chunk = os.read(self.b_r, 4096)
+            if os.name == 'nt':
+                self.supervisor_sock.settimeout(max(0.01, deadline - time.time()))
+                try:
+                    chunk = self.supervisor_sock.recv(4096)
+                except socket.timeout:
+                    return None
+            else:
+                chunk = os.read(self.b_r, 4096)
             if chunk:
                 self._buf += chunk
         return None
 
     def close_to_worker(self):
+        if os.name == 'nt':
+            self.supervisor_sock.close()
+            return
         os.close(self.a_w)            # EOF fuer den Worker-Reader
+
+    def close(self):
+        if os.name == 'nt':
+            for sock in (self.worker_sock, self.supervisor_sock):
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+            return
+        for fd in (self.a_r, self.a_w, self.b_r, self.b_w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
 class TestWorkerIpc(unittest.TestCase):
@@ -52,6 +86,7 @@ class TestWorkerIpc(unittest.TestCase):
             self.ipc.close()
         except Exception:
             pass
+        self.sup.close()
 
     def test_acquire_blocks_until_grant(self):
         result = {}

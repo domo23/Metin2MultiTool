@@ -2,12 +2,14 @@
 """Build-Schritt 11: Launcher-Orchestrierung (broker + supervisor + spawn).
 
 Voll gemockt -- kein echter Prozess-Spawn, keine Pipes, kein Spiel. Prueft die
-VERDRAHTUNG: Pipe-Paarung + Broker-Registrierung + Worker-Kommandozeile +
-``pass_fds``/Env, die Broker/Supervisor-Verkabelung, Heartbeat-Routing und die
-Lauf-/Stop-Schleife. Der reale OS-Spawn/FD-Vererbung bleibt live-only.
+VERDRAHTUNG: Pipe-/Socket-Paarung + Broker-Registrierung + Worker-Kommandozeile
++ Prozessvererbungsoptionen/Env, Broker/Supervisor-Verkabelung,
+Heartbeat-Routing und Lauf-/Stop-Schleife.
 """
 
 import unittest
+from unittest import mock
+import socket
 
 import launcher
 
@@ -79,6 +81,39 @@ class TestMakeSpawn(unittest.TestCase):
         self.assertIn('2', cmd)            # a_w als fd-out
         self.assertEqual(popened['env']['M2FB_DATA_DIR'], '/data/c0')
 
+    def test_windows_spawn_inherits_socket_handle(self):
+        broker = _FakeBroker()
+        popened = {}
+
+        class StartupInfo:
+            pass
+
+        def fake_popen(cmd, **kwargs):
+            popened['cmd'] = cmd
+            popened.update(kwargs)
+            return 'PROC'
+
+        with mock.patch.object(launcher.os, 'name', 'nt'), \
+                mock.patch.object(launcher.subprocess, 'STARTUPINFO',
+                                  StartupInfo, create=True):
+            spawn = launcher.make_spawn(
+                'py', 'worker.py', broker, popen=fake_popen,
+                base_env={'X': '1'})
+            proc = spawn(0, 777, 'fischen', '/data/c0')
+
+        self.assertEqual(proc, 'PROC')
+        idx, broker_sock, broker_write_sock = broker.registered[0]
+        self.assertEqual(idx, 0)
+        self.assertIs(broker_sock, broker_write_sock)
+        self.assertIsInstance(broker_sock, socket.socket)
+        self.assertTrue(popened['close_fds'])
+        self.assertEqual(
+            popened['startupinfo'].lpAttributeList['handle_list'],
+            [int(popened['cmd'][popened['cmd'].index('--ipc-fd-in') + 1])])
+        self.assertNotIn('pass_fds', popened)
+        self.assertEqual(popened['env']['M2FB_DATA_DIR'], '/data/c0')
+        broker_sock.close()
+
 
 class _FakeBrokerServer:
     def __init__(self, on_heartbeat):
@@ -108,6 +143,7 @@ class _FakeSupervisor:
     def add_client(self, idx, hwnd, mode, data_dir):
         self.added.append((idx, hwnd, mode, data_dir))
 
+    @property
     def alive_ids(self):
         return [0] if self._alive else []
 

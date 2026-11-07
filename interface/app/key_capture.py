@@ -73,6 +73,10 @@ class KeyCaptureMixin:
             current = self._cfg[section][cfg_key]
             key = cfgmod._validate_key(token, current)
             self._cfg = self.controller.update_config(section, cfg_key, key)
+            if which == 'stop':
+                sync_button = getattr(self, '_mc_sync_stop_button', None)
+                if callable(sync_button):
+                    sync_button()
         except Exception:
             pass
         self._end_key_capture(which, btn)
