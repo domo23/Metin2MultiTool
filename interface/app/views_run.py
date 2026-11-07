@@ -51,6 +51,24 @@ class FishingPuzzleConsoleViewsMixin:
         InfoBadge(tbody, text=t('ui.start_delay_help')).grid(
             row=2, column=1, sticky='ne', padx=(4, 0))
 
+        predict_row = ctk.CTkFrame(tbody, fg_color='transparent')
+        predict_row.grid(row=3, column=0, columnspan=2, sticky='ew', pady=4)
+        predict_row.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            predict_row, text=t('ui.fish_velocity_predict'),
+            text_color=TEXT).grid(row=0, column=0, sticky='w')
+        InfoBadge(predict_row, text=t('ui.fish_velocity_predict_help')).grid(
+            row=0, column=1, sticky='e', padx=(4, 4))
+        self._fish_velocity_predict_entry = ctk.CTkEntry(
+            predict_row, width=64, justify='center')
+        self._fish_velocity_predict_entry.grid(row=0, column=2, sticky='e')
+        self._fish_velocity_predict_entry.insert(
+            0, str(self._cfg['fishing']['fish_velocity_predict']))
+        self._fish_velocity_predict_entry.bind(
+            '<FocusOut>', self._on_fish_velocity_predict_change)
+        self._fish_velocity_predict_entry.bind(
+            '<Return>', self._on_fish_velocity_predict_change)
+
         # Zeitlimit-Zeile: EIN Dreifach-Segment (Aus | Stoppen | Inventar-
         # Cleanup) + Minutenfeld. UMGEBAUT 2026-06-10: die alte Checkbox+
         # Segment-Kombi war eine Falle -- Segment auf Cleanup, Haekchen

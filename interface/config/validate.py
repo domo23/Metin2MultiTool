@@ -34,6 +34,8 @@ from .defaults import (
     ES_UNVERIF_MAX,
     ES_UNVERIF_MIN,
     EVENT_WARN_MIN_MAX,
+    FISH_VELOCITY_PREDICT_MAX,
+    FISH_VELOCITY_PREDICT_MIN,
     GOLDEN_TUNA_ACTIONS,
     HOTKEY_TOKENS,
     KEYPOINT_KEYS,
@@ -186,6 +188,12 @@ def validate(cfg):
         fishing['start_game_time'] = _clamp(
             fishing.get('start_game_time'), DELAY_MIN, DELAY_MAX,
             DEFAULTS['fishing']['start_game_time'])
+        velocity_predict = _coerce_int(
+            fishing.get('fish_velocity_predict'),
+            DEFAULTS['fishing']['fish_velocity_predict'])
+        fishing['fish_velocity_predict'] = max(
+            FISH_VELOCITY_PREDICT_MIN,
+            min(FISH_VELOCITY_PREDICT_MAX, velocity_predict))
         fishing['stop_after_enabled'] = bool(
             fishing.get('stop_after_enabled', False))
         minutes = _coerce_int(fishing.get('stop_after_minutes'), 0)

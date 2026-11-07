@@ -106,6 +106,19 @@ def _make_loop():
 
 
 class TestStopSignalCallback(unittest.TestCase):
+    def test_fishing_prediction_config_is_injected_on_start(self):
+        from interface import config as cfgmod
+
+        loop, app, fish, _puzz = _make_loop()
+        app.controller._cfg = cfgmod.validate({
+            'fishing': {'fish_velocity_predict': 17}})
+        loop._collect_whitelist_states = lambda: {}
+        loop._bait_refill_db = lambda: None
+
+        loop.on_start()
+
+        self.assertEqual(fish.FISH_VELO_PREDICT, 17)
+
     def test_callback_clears_both_bots(self):
         loop, app, fish, puzz = _make_loop()
         fish.botting = True

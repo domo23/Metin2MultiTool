@@ -57,6 +57,8 @@ KEYPOINT_KEYS = ('color', 'getpiece', 'confirm', 'cake')
 # Slider-Grenzen fuer die drei Fishing-Timings (Spec: 0.1s - 20s).
 DELAY_MIN = 0.1
 DELAY_MAX = 20.0
+FISH_VELOCITY_PREDICT_MIN = 0
+FISH_VELOCITY_PREDICT_MAX = 30
 
 # Grenzen fuer die Overlay-Deckkraft (Mark-/Vorschau-Overlay). 0.4 = noch klar
 # durchscheinend (pixelgenaues Platzieren), 1.0 = voll deckend. Default bewusst
@@ -104,6 +106,7 @@ DEFAULTS = {
         'bait_time': 2.0,
         'throw_time': 2.0,
         'start_game_time': 2.0,
+        'fish_velocity_predict': 5,
         'stop_after_enabled': False,
         'stop_after_minutes': 0,
         # Was beim Ablauf des Zeitlimits passiert (entweder/oder):
@@ -315,6 +318,7 @@ __all__ = [
     'ES_PAUSE_MIN', 'ES_PAUSE_MAX', 'ES_MAXACT_MIN', 'ES_MAXACT_MAX',
     'ES_UNVERIF_MIN', 'ES_UNVERIF_MAX', 'ES_JITTER_MIN', 'ES_JITTER_MAX',
     'DELAY_MIN', 'DELAY_MAX', 'OVERLAY_OPACITY_MIN', 'OVERLAY_OPACITY_MAX',
+    'FISH_VELOCITY_PREDICT_MIN', 'FISH_VELOCITY_PREDICT_MAX',
     'PUZZLE_DELAY_MIN', 'PUZZLE_DELAY_MAX',
     'HOTKEY_TOKENS', 'WEEKDAYS', 'EVENT_WARN_MIN_MAX',
     'USERNAME_MAXLEN',

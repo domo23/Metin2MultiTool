@@ -22,6 +22,15 @@ class RunControlMixin:
         self._cfg = self.controller.update_config(
             'fishing', 'stop_after_minutes', minutes)
 
+    def _on_fish_velocity_predict_change(self, _event=None):
+        raw = self._fish_velocity_predict_entry.get().strip()
+        self._cfg = self.controller.update_config(
+            'fishing', 'fish_velocity_predict', raw)
+        normalized = str(self._cfg['fishing']['fish_velocity_predict'])
+        if raw != normalized:
+            self._fish_velocity_predict_entry.delete(0, 'end')
+            self._fish_velocity_predict_entry.insert(0, normalized)
+
     def _on_timer_action_change(self, label):
         """Zeitlimit-Wahl (EIN Dreifach-Segment): Aus | Stoppen | Cleanup.
 
@@ -124,6 +133,7 @@ class RunControlMixin:
             seg.set_enabled(not running)
         state = 'normal' if not running else 'disabled'
         self.stop_after_entry.configure(state=state)
+        self._fish_velocity_predict_entry.configure(state=state)
         # Force-Deluxe-Schalter waehrend des Laufs sperren (wie die Segmente).
         try:
             self.force_deluxe_switch.configure(state=state)

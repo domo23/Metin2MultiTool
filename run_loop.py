@@ -633,6 +633,7 @@ class RunLoop:
             # (analog zur Puzzle-Config-Injektion). Frozen keys via to_values
             # bleiben unberuehrt; Default '2'/'1' -> byte-stabil.
             fish_cfg = self.controller.current_config()['fishing']
+            self.fishbot.FISH_VELO_PREDICT = fish_cfg['fish_velocity_predict']
             self.fishbot.bait_key = fish_cfg['bait_key']
             self.fishbot.cast_key = fish_cfg['cast_key']
             # Mount-Taste fuer Symmetrie auf die Instanz spiegeln (set_to_begin

@@ -312,6 +312,8 @@ TRANSLATIONS = {
     'ui.bait_delay_help': {'en': 'Wait after baiting before the next action. Range 0.1-20 s.', 'de': 'Wartezeit nach dem Ködern bis zur nächsten Aktion. Bereich 0.1-20 s.'},
     'ui.throw_delay_help': {'en': 'Pause before casting again after reeling in. Range 0.1-20 s.', 'de': 'Pause vor erneutem Auswerfen nach dem Einholen. Bereich 0.1-20 s.'},
     'ui.start_delay_help': {'en': 'Grace period after Start before the first cast - time to focus Metin2. Range 0.1-20 s.', 'de': 'Vorlaufzeit nach Start bis zum ersten Auswurf - Zeit, Metin2 zu fokussieren. Bereich 0.1-20 s.'},
+    'ui.fish_velocity_predict': {'en': 'Fast-fish prediction lead (px)', 'de': 'Vorhalt für schnelle Fische (px)'},
+    'ui.fish_velocity_predict_help': {'en': 'Pixel distance to lead fast-moving fish when clicking. Range 0-30; default 5.', 'de': 'Pixel-Abstand, um bei schnellen Fischen vorauszuklicken. Bereich 0-30; Standard 5.'},
     'ui.stop_after_help': {'en': 'Automatically stop the run after this much time. Off = fish indefinitely (timer counts up).', 'de': 'Stoppt den Lauf automatisch nach dieser Zeit. Aus = unbegrenzt angeln (Timer zählt hoch).'},
     'ui.inv_manage_running': {'en': 'Managing inventory ... [F6] stops', 'de': 'Inventar managen läuft ... [F6] stoppt'},
     'ui.timer_action_off': {'en': 'Off', 'de': 'Aus'},

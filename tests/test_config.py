@@ -19,6 +19,7 @@ class TestDefaultsAndValidate(unittest.TestCase):
         self.assertEqual(cfg['puzzle']['color_mode'], 'single')
         self.assertEqual(cfg['puzzle']['solver_mode'], 'standard')
         self.assertEqual(cfg['fishing']['bait_time'], 2.0)
+        self.assertEqual(cfg['fishing']['fish_velocity_predict'], 5)
 
     def test_validate_never_raises_on_garbage(self):
         for junk in (None, 42, 'x', [], {'mode': object()}):
@@ -54,6 +55,18 @@ class TestClamping(unittest.TestCase):
         self.assertEqual(f['bait_time'], config.DELAY_MAX)
         self.assertEqual(f['throw_time'], config.DELAY_MIN)
         self.assertEqual(f['start_game_time'], 2.0)
+
+    def test_fish_velocity_prediction_is_clamped(self):
+        cfg = config.validate({'fishing': {'fish_velocity_predict': 99}})
+        self.assertEqual(
+            cfg['fishing']['fish_velocity_predict'],
+            config.FISH_VELOCITY_PREDICT_MAX)
+        cfg = config.validate({'fishing': {'fish_velocity_predict': -1}})
+        self.assertEqual(
+            cfg['fishing']['fish_velocity_predict'],
+            config.FISH_VELOCITY_PREDICT_MIN)
+        cfg = config.validate({'fishing': {'fish_velocity_predict': 'bad'}})
+        self.assertEqual(cfg['fishing']['fish_velocity_predict'], 5)
 
 
 class TestEnumCoercion(unittest.TestCase):

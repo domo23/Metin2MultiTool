@@ -35,6 +35,7 @@ Python (py.exe) a display is always present, so it runs for real there.
 """
 
 import unittest
+from unittest import mock
 
 try:
     import customtkinter as _ctk  # noqa: F401  (import-probe only)
@@ -475,6 +476,32 @@ class TestGuiLaunchSmoke(unittest.TestCase):
         self.assertIs(
             self.app.controller.current_config()['fishing']['bait_refill_enabled'],
             False)
+
+    def test_fishing_prediction_lead_entry_wired_to_config(self):
+        self.app._show_view('fishing')
+        self.app.update_idletasks()
+        entry = self.app._fish_velocity_predict_entry
+        with mock.patch.object(self.app.controller, '_schedule_save'):
+            self.app.controller.update_config(
+                'fishing', 'fish_velocity_predict', 5)
+            self.app._cfg = self.app.controller.current_config()
+            self.app._apply_config_to_widgets()
+            self.assertEqual(entry.get(), '5')
+
+            entry.delete(0, 'end')
+            entry.insert(0, '12')
+            self.app._on_fish_velocity_predict_change()
+            self.assertEqual(
+                self.app.controller.current_config()['fishing']
+                ['fish_velocity_predict'], 12)
+
+            entry.delete(0, 'end')
+            entry.insert(0, '99')
+            self.app._on_fish_velocity_predict_change()
+            self.assertEqual(entry.get(), '30')
+            self.assertEqual(
+                self.app.controller.current_config()['fishing']
+                ['fish_velocity_predict'], 30)
 
     # -- Inventory scan: progress-fill button + no-marks message ----------
 
